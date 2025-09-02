@@ -21,7 +21,7 @@ const ToolPanel = ({ selectedTool, setSelectedTool, setToolActive, setInfoActive
             }
           }}
           active={selectedTool === tool || (isMouseWheelDown && tool === "hand")}
-          tooltip={tool === "cursor" ? "Обычный указатель для работы с объектами и сброса других инструментов." : tool === "pipette" ? "Инструмент пипетки позволяет выбирать цвета изображения." : "Инструмент для перемещения области просмотра изображения. Удерживайте Shift для точного позиционирования."}
+          tooltip={tool === "cursor" ? "Обычный указатель для работы с объектами и сброса других инструментов. (Горячая клавиша: C)" : tool === "pipette" ? "Инструмент пипетки позволяет выбирать цвета изображения. Alt+клик для второго цвета. (Горячая клавиша: P)" : "Инструмент для перемещения области просмотра изображения. Удерживайте Shift для точного позиционирования. (Горячая клавиша: H)"}
         >
           <svg className="tool-panel__icon" role="img" fill="currentColor" viewBox={tool === "cursor" ? "0 0 18 18" : tool === "pipette" ? "0 0 18 18" : "0 0 512 512"} width="18" height="18" aria-hidden="true" focusable="false">
             {tool === "cursor" ? (

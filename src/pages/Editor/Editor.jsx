@@ -23,14 +23,17 @@ import {
   handleKeyUp,
   handleMouseUp,
 } from "@utils/CanvasChange/canvasKeyHand";
-import {
-  extractRGB,
-  rgbToXyz,
-  rgbToLab,
-  calculateContrast,
-} from "@utils/RonvertColours/ronvertColours";
+
 
 import { calculateFileSize } from "@utils/FileSize/fileSize";
+import { 
+  extractRGB, 
+  rgbToXyz, 
+  rgbToLab, 
+  rgbToOKLch, 
+  calculateContrast,
+  formatColorForDisplay
+} from "@utils/ColorSpaces/colorConversions";
 
 const Editor = () => {
   const { image, setImage } = useContext(ImageContext);
@@ -249,13 +252,8 @@ const Editor = () => {
             currentScaledHeight
         );
         
-        // Обновляем dimensions только если размеры изменились
-        setDimensions(prevDimensions => {
-          if (prevDimensions.width !== currentScaledWidth || prevDimensions.height !== currentScaledHeight) {
-            return { width: currentScaledWidth, height: currentScaledHeight };
-          }
-          return prevDimensions;
-        });
+        // Обновляем dimensions
+        setDimensions({ width: currentScaledWidth, height: currentScaledHeight });
       };
       
       // Сохраняем функцию в глобальной области для доступа из других useEffect
@@ -338,7 +336,7 @@ const Editor = () => {
       // Рисуем изображение
       context.current.drawImage(img, centerX, centerY, scaledWidth, scaledHeight);
       
-      // Обновляем dimensions для других компонентов
+      // Обновляем dimensions для других компонентов (синхронизируем с redrawCanvas)
       setDimensions({ width: scaledWidth, height: scaledHeight });
     };
   }, [image, scaleFactor, imagePosition, originalFormat]);
@@ -368,8 +366,8 @@ const Editor = () => {
     setMouseCoords({ x, y });
 
     // Calculate image position and dimensions
-    const imageWidth = dimensions.width * (scaleFactor / 100);
-    const imageHeight = dimensions.height * (scaleFactor / 100);
+    const imageWidth = originalDimensions.width * (scaleFactor / 100);
+    const imageHeight = originalDimensions.height * (scaleFactor / 100);
     const imageX = (canvasElement.width - imageWidth) / 2 + imagePosition.x; // Update to use imagePosition
     const imageY = (canvasElement.height - imageHeight) / 2 + imagePosition.y; // Update to use imagePosition
 
@@ -467,6 +465,7 @@ const Editor = () => {
           setSelectedTool("pipette");
           setToolActive("pipette");
           setInfoActive(true);
+          setIsContextModalOpen(true);
           break;
         case "KeyH":
           setSelectedTool("hand");
@@ -659,11 +658,39 @@ const Editor = () => {
     if (!canvasRef) return;
 
     if (toolActive === "pipette") {
-      const coordinates = {
-        x: mouseCoords.x,
-        y: mouseCoords.y,
-      };
-      event.altKey ? (setPipetteColor2(currentColor), setImageCoordinates((prev) => ({ ...prev, extra: coordinates }))) : (setPipetteColor1(currentColor), setImageCoordinates((prev) => ({ ...prev, base: coordinates })));
+      // Получаем координаты клика относительно canvas
+      const rect = canvasRef.getBoundingClientRect();
+      const canvasX = event.clientX - rect.left;
+      const canvasY = event.clientY - rect.top;
+
+      // Рассчитываем размеры и позицию изображения на canvas
+      const imageWidth = originalDimensions.width * (scaleFactor / 100);
+      const imageHeight = originalDimensions.height * (scaleFactor / 100);
+      const imageX = (canvasRef.width - imageWidth) / 2 + imagePosition.x;
+      const imageY = (canvasRef.height - imageHeight) / 2 + imagePosition.y;
+
+      // Проверяем, что клик был по изображению
+      if (canvasX >= imageX && canvasX < imageX + imageWidth && 
+          canvasY >= imageY && canvasY < imageY + imageHeight) {
+        
+        // Переводим координаты canvas в координаты изображения
+        const imageCoordX = Math.floor((canvasX - imageX) / (scaleFactor / 100));
+        const imageCoordY = Math.floor((canvasY - imageY) / (scaleFactor / 100));
+
+        const coordinates = {
+          x: imageCoordX,
+          y: imageCoordY,
+        };
+
+        // Alt/Ctrl/Shift клик для второго цвета, обычный клик для первого
+        if (event.altKey || event.ctrlKey || event.shiftKey) {
+          setPipetteColor2(currentColor);
+          setImageCoordinates((prev) => ({ ...prev, extra: coordinates }));
+        } else {
+          setPipetteColor1(currentColor);
+          setImageCoordinates((prev) => ({ ...prev, base: coordinates }));
+        }
+      }
     }
   };
 
@@ -778,19 +805,72 @@ const Editor = () => {
         title="Пипетка"
       >
         <div className="editor__all-colors">
-          {["Цвет #1", "Цвет #2 (зажми alt)", "Текущий цвет"].map((label, index) => (
-            <div className="editor__info-color" key={index}>
-              <p className="status-bar__text">{label}:</p>
-              <div className="status-bar__color" style={{ backgroundColor: index === 0 ? pipetteColor1 : index === 1 ? pipetteColor2 : currentColor }}></div>
-              <p className="status-bar__text">&nbsp;{index === 0 ? pipetteColor1 : index === 1 ? pipetteColor2 : currentColor}</p>
-              <p className="status-bar__text">&nbsp;{(index === 0 ? pipetteColor1 : index === 1 ? pipetteColor2 : currentColor) && rgbToXyz(extractRGB(index === 0 ? pipetteColor1 : index === 1 ? pipetteColor2 : currentColor))}</p>
-              {/* <p className="status-bar__text">&nbsp;{(index === 0 ? pipetteColor1 : index === 1 ? pipetteColor2 : currentColor) && rgbToLab(extractRGB(index === 0 ? pipetteColor1 : index === 1 ? pipetteColor2 : currentColor))}</p> */}
-              {index < 2 && <p className="status-bar__text">&nbsp;({imageCoordinates[index === 0 ? "base" : "extra"].x}, {imageCoordinates[index === 0 ? "base" : "extra"].y})</p>}
+          {pipetteColor1 || pipetteColor2 ? (
+            <>
+              {/* Цвет #1 */}
+              {pipetteColor1 && (
+                <div className="editor__color-section">
+                  <h3 className="editor__color-title">Цвет #1 (клик)</h3>
+                  <div className="editor__color-info">
+                    <div className="status-bar__color editor__color-swatch" style={{ backgroundColor: pipetteColor1 }}></div>
+                    <div className="editor__color-details">
+                      <p className="status-bar__text">Координаты: ({imageCoordinates.base.x}, {imageCoordinates.base.y})</p>
+                      <p className="status-bar__text">RGB: {formatColorForDisplay(pipetteColor1, originalFormat)}</p>
+                      <p className="status-bar__text" title="CIE XYZ - трехстимульное цветовое пространство, основанное на восприятии человеческого глаза">XYZ: {rgbToXyz(extractRGB(pipetteColor1))}</p>
+                      <p className="status-bar__text" title="CIE Lab - перцептуально равномерное цветовое пространство. L: яркость (0-100), a: зелёный-красный (-128 до +127), b: синий-жёлтый (-128 до +127)">Lab: {rgbToLab(extractRGB(pipetteColor1))}</p>
+                      <p className="status-bar__text" title="OKLch - современное перцептуально равномерное пространство. L: яркость (0-1), C: хрома/насыщенность (0+), h: оттенок (0-360°)">OKLch: {rgbToOKLch(extractRGB(pipetteColor1))}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Цвет #2 */}
+              {pipetteColor2 && (
+                <div className="editor__color-section">
+                  <h3 className="editor__color-title">Цвет #2 (Alt/Ctrl/Shift + клик)</h3>
+                  <div className="editor__color-info">
+                    <div className="status-bar__color editor__color-swatch" style={{ backgroundColor: pipetteColor2 }}></div>
+                    <div className="editor__color-details">
+                      <p className="status-bar__text">Координаты: ({imageCoordinates.extra.x}, {imageCoordinates.extra.y})</p>
+                      <p className="status-bar__text">RGB: {formatColorForDisplay(pipetteColor2, originalFormat)}</p>
+                      <p className="status-bar__text" title="CIE XYZ - трехстимульное цветовое пространство, основанное на восприятии человеческого глаза">XYZ: {rgbToXyz(extractRGB(pipetteColor2))}</p>
+                      <p className="status-bar__text" title="CIE Lab - перцептуально равномерное цветовое пространство. L: яркость (0-100), a: зелёный-красный (-128 до +127), b: синий-жёлтый (-128 до +127)">Lab: {rgbToLab(extractRGB(pipetteColor2))}</p>
+                      <p className="status-bar__text" title="OKLch - современное перцептуально равномерное пространство. L: яркость (0-1), C: хрома/насыщенность (0+), h: оттенок (0-360°)">OKLch: {rgbToOKLch(extractRGB(pipetteColor2))}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Контраст */}
+              {pipetteColor1 && pipetteColor2 && (
+                <div className="editor__contrast-section">
+                  <h3 className="editor__color-title">Контраст между цветами</h3>
+                  <p className="editor__contrast-info" title="Контраст рассчитан по методике WCAG 2.1. Минимум 4.5:1 для обычного текста, 3:1 для крупного текста">
+                    {calculateContrast(extractRGB(pipetteColor1), extractRGB(pipetteColor2))}
+                  </p>
+                </div>
+              )}
+
+              {/* Текущий цвет под курсором */}
+              {currentColor && (
+                <div className="editor__color-section">
+                  <h3 className="editor__color-title">Цвет под курсором</h3>
+                  <div className="editor__color-info">
+                    <div className="status-bar__color editor__color-swatch" style={{ backgroundColor: currentColor }}></div>
+                    <div className="editor__color-details">
+                      <p className="status-bar__text">RGB: {formatColorForDisplay(currentColor, originalFormat)}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="editor__pipette-hint">
+              <p className="status-bar__text">💡 Кликните по изображению для выбора первого цвета</p>
+              <p className="status-bar__text">💡 Alt/Ctrl/Shift + клик для выбора второго цвета</p>
+              <p className="status-bar__text">💡 После выбора двух цветов будет показан их контраст</p>
             </div>
-          ))}
-          <p className="editor__contrast-info">
-            Контраст {pipetteColor1 && pipetteColor2 && calculateContrast(extractRGB(pipetteColor1), extractRGB(pipetteColor2))}
-          </p>
+          )}
         </div>
       </ContextModal>
     </section>

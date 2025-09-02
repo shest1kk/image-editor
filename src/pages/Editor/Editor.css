@@ -172,6 +172,7 @@
 
 .editor__all-colors {
   display: flex;
+  flex-direction: column;
   grid-template-columns: 60px 1fr 1fr;
   gap: 4px;
   width: min(480px, 40vw);
@@ -303,5 +304,101 @@ body.light-mode {
 
 .status-bar__scale-input[type=number] {
   -moz-appearance: textfield;
+}
+
+/* Стили для улучшенной панели пипетки */
+.editor__color-section {
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid var(--dark-gray);
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.editor__color-title {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-light);
+}
+
+.editor__color-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.editor__color-swatch {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  border: 2px solid var(--dark-gray);
+  flex-shrink: 0;
+}
+
+.editor__color-details {
+  flex: 1;
+}
+
+.editor__color-details .status-bar__text {
+  margin: 2px 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.editor__contrast-section {
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 2px solid var(--dark-gray);
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.editor__contrast-info {
+  margin: 4px 0 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px;
+  border-radius: 4px;
+  background-color: rgba(0, 0, 0, 0.2);
+}
+
+.editor__pipette-hint {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-light);
+}
+
+.editor__pipette-hint .status-bar__text {
+  margin: 8px 0;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+/* Light mode adjustments */
+.light-mode .editor__color-section {
+  border-color: var(--light-gray);
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+.light-mode .editor__color-title {
+  color: var(--text-dark);
+}
+
+.light-mode .editor__color-swatch {
+  border-color: var(--light-gray);
+}
+
+.light-mode .editor__contrast-section {
+  border-color: var(--light-gray);
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.light-mode .editor__contrast-info {
+  background-color: rgba(255, 255, 255, 0.5);
+}
+
+.light-mode .editor__pipette-hint {
+  color: var(--text-dark);
 }
 
