@@ -15,13 +15,13 @@ const ToolPanel = ({ selectedTool, setSelectedTool, setToolActive, setInfoActive
               setInfoActive(true);
               setIsContextModalOpen(true);
             } else {
-              // Закрываем модальное окно пипетки при переключении на другие инструменты
+              // Закрываем модальное окно пипетки при выборе других инструментов
               setInfoActive(false);
               setIsContextModalOpen(false);
             }
           }}
           active={selectedTool === tool || (isMouseWheelDown && tool === "hand")}
-          tooltip={tool === "cursor" ? "Обычный указатель для работы с объектами и сброса других инструментов." : tool === "pipette" ? "Инструмент пипетки позволяет выбирать цвета изображения." : "Инструмент для перемещения области просмотра изображения."}
+          tooltip={tool === "cursor" ? "Обычный указатель для работы с объектами и сброса других инструментов." : tool === "pipette" ? "Инструмент пипетки позволяет выбирать цвета изображения." : "Инструмент для перемещения области просмотра изображения. Удерживайте Shift для точного позиционирования."}
         >
           <svg className="tool-panel__icon" role="img" fill="currentColor" viewBox={tool === "cursor" ? "0 0 18 18" : tool === "pipette" ? "0 0 18 18" : "0 0 512 512"} width="18" height="18" aria-hidden="true" focusable="false">
             {tool === "cursor" ? (

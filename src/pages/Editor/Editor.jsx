@@ -58,6 +58,7 @@ const Editor = () => {
   const canvas = useRef();
   const context = useRef();
   const animationFrameId = useRef(null);
+
   const [isMouseDown, setIsMouseDown] = useState(false); // Track mouse button state
   const [selectedTool, setSelectedTool] = useState("cursor"); // New state to track selected tool
   const [isMouseWheel, setIsMouseWheel] = useState(false); // New state to track mouse wheel state
@@ -79,6 +80,10 @@ const Editor = () => {
   const [previousTool, setPreviousTool] = useState("cursor");
 
   const [imagePosition, setImagePosition] = useState({ x: 0, y: 0 });
+  
+  // Коэффициенты чувствительности перемещения
+  const handToolSensitivity = 0.5; // Для инструмента "Рука"
+  const wheelDragSensitivity = 0.7; // Для перетаскивания колесиком мыши
 
   const formatFileSize = (bytes) => {
     if (bytes < 1024) return bytes + ' B';
@@ -163,7 +168,7 @@ const Editor = () => {
   const closeContextModal = () => {
     setIsContextModalOpen(false);
     setToolActive("cursor");
-    setSelectedTool("cursor");  // Также обновляем selectedTool
+    setSelectedTool("cursor"); // Синхронизируем визуальное состояние
     setInfoActive(false);
   };
 
@@ -270,7 +275,7 @@ const Editor = () => {
         }
       };
     };
-  }, [image, scaleFactor, canvasTranslation]);
+  }, [image, scaleFactor, imagePosition]);
 
   const [currentColor, setCurrentColor] = useState("");
 
@@ -305,13 +310,30 @@ const Editor = () => {
 
     }
 
+    // Handle dragging for hand tool
     if (isDragging && (toolActive === "hand" || isMouseWheelDown)) {
-      const dx = e.clientX - rect.left - cursor.x;
-      const dy = e.clientY - rect.top - cursor.y;
+      // Выбираем коэффициент в зависимости от способа перетаскивания
+      let sensitivity = isMouseWheelDown ? wheelDragSensitivity : handToolSensitivity;
+      
+      // Если зажат Shift - делаем перемещение более точным (медленным)
+      if (e.shiftKey) {
+        sensitivity *= 0.2; // Уменьшаем чувствительность в 5 раз
+      }
+      
+      const dx = (x - cursor.x) * sensitivity;
+      const dy = (y - cursor.y) * sensitivity;
 
-      updateTranslation(animationFrameId, canvasTranslation, setCanvasTranslation, imagePosition, setImagePosition, dx, dy);
+      // Обновляем позицию изображения с учетом чувствительности
+      setImagePosition(prevPosition => ({
+        x: prevPosition.x + dx,
+        y: prevPosition.y + dy
+      }));
     }
-  }, [isDragging, toolActive, isMouseWheelDown, cursor.x, cursor.y, canvasTranslation, imagePosition, dimensions, scaleFactor]);
+
+    // Обновляем курсор в конце
+    setCursor({ x, y });
+    setMouseCoords({ x, y });
+  }, [isDragging, toolActive, isMouseWheelDown, cursor.x, cursor.y, dimensions, scaleFactor, handToolSensitivity, wheelDragSensitivity]);
 
   const handleKeyDownEvent = (e) => handleKeyDown(toolActive, canvasTranslation, setCanvasTranslation, e);
   const handleKeyUpEvent = (e) => handleKeyUp(toolActive, canvasTranslation, setCanvasTranslation, e);
@@ -325,9 +347,10 @@ const Editor = () => {
   };
   const handleMouseDownEvent = (e) => {
     setIsMouseDown(true);
+    
     if (e.button === 1) { // Middle mouse button
       handleMouseWheelDown(e);
-    } else if (selectedTool === "hand") {
+    } else if (toolActive === "hand") {
       setIsDragging(true);
     }
   };
@@ -335,6 +358,7 @@ const Editor = () => {
   const handleMouseWheelDown = (e) => {
     if (e.button === 1) { // Middle mouse button
       e.preventDefault(); // Prevent default scrolling behavior
+      
       setIsMouseWheelDown(true);
       setPreviousTool(toolActive);
       setToolActive("hand");
@@ -357,8 +381,8 @@ const Editor = () => {
         case "KeyC":
           setSelectedTool("cursor");
           setToolActive("cursor");
-          // Закрываем модальное окно пипетки при переключении на cursor
-          if (toolActive === "pipette") {
+          // Закрываем модальное окно пипетки при переключении на курсор
+          if (isContextModalOpen || infoActive) {
             setIsContextModalOpen(false);
             setInfoActive(false);
           }
@@ -371,8 +395,8 @@ const Editor = () => {
         case "KeyH":
           setSelectedTool("hand");
           setToolActive("hand");
-          // Закрываем модальное окно пипетки при переключении на hand
-          if (toolActive === "pipette") {
+          // Закрываем модальное окно пипетки при переключении на руку
+          if (isContextModalOpen || infoActive) {
             setIsContextModalOpen(false);
             setInfoActive(false);
           }
