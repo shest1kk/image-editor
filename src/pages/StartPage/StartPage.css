@@ -1,0 +1,73 @@
+.home {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start; /* Изменено с center на flex-start */
+    min-height: 100vh; /* Изменено с height на min-height */
+    padding: 20px;
+    background-image: url('../../assets/background-startpage.svg'); /* Путь к вашему SVG файлу */
+    background-size: cover; /* Changed to cover to prevent resizing */
+    background-position: center;
+    background-repeat: no-repeat;
+    overflow: hidden;
+}
+
+.home__head {
+    margin: 20px 0 12px; /* Уменьшен верхний отступ */
+    font-size: 20px;
+}
+
+.preview {
+    max-width: min(80vw, 540px);
+    max-height: min(60vh, 420px);
+    border: 2px dashed black; /* Changed to dashed border for the image */
+    margin: 20px 10px;
+    padding: 10px; /* Added padding for better spacing */
+}
+
+.home__actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: center;
+    max-width: min(80vw, 660px); /* Увеличено с 64vw до 80vw для большей ширины */
+    margin: 20px auto 0;
+    width: 100%; /* Добавлено для обеспечения полной ширины */
+}
+
+.home__load-buttons {
+    display: flex;
+    flex-wrap: nowrap; /* Изменено с wrap на nowrap */
+    justify-content: center;
+    gap: 10px;
+    width: 100%; /* Добавлено для обеспечения полной ширины */
+}
+
+.home__load-buttons .button,
+.home__load-buttons a {
+    flex: 1; /* Добавлено для равномерного распределения пространства */
+    min-width: 0; /* Добавлено для предотвращения переполнения */
+    transition: transform 0.3s ease; /* Добавлено для плавности при наведении и отведении */
+}
+
+.home__load-buttons .button:hover,
+.home__load-buttons a:hover {
+    transform: scale(1.05); /* Увеличение только при наведении на конкретную кнопку */
+}
+
+.home__load-buttons .button {
+    width: 100%; /* Добавлено для заполнения всего доступного пространства */
+    white-space: nowrap; /* Добавлено для предотвращения переноса текста */
+    overflow: hidden; /* Добавлено для обрезки слишком длинного текста */
+    text-overflow: ellipsis; /* Добавлено для отображения многоточия при обрезке */
+}
+
+.about {
+    display: flex;
+    flex-direction: column;
+}
+
+.about__field {
+    display: flex;
+    gap: 6px;
+}

@@ -1,0 +1,70 @@
+.curves-modal {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+}
+
+.curves-modal__preview {
+    display: none;
+}
+
+.curves-modal__preview--active {
+    display: block;
+    margin-bottom: 20px;
+    position: fixed;
+    max-height: 400px;
+    max-width: min(400px, 20%);
+    right: 0px;
+}
+
+.curves-modal__edit {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.curves-modal__settings {
+    display: flex;
+    align-items: center;
+    font-size: 14px;
+    line-height: 1.2;
+    & label {
+        cursor: pointer;
+        padding-right: 8px;
+    }
+    & input {
+        cursor: pointer;
+    }
+}
+
+
+
+.curves-modal__table {
+    display: grid;
+    grid-template-columns: 80px 90px 90px;
+    gap: 10px;
+    /* justify-content: center; */
+    align-items: center;
+    margin: 20px 0;
+}
+
+.curves-modal__name {
+    font-weight: 500;
+    font-size: 16px;
+    text-align: center;
+    margin: 0;
+}
+
+.curves-modal__name--a {
+    grid-column-start: 2;
+}
+
+
+
+.curves-modal__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}

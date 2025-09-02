@@ -1,0 +1,34 @@
+.loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background-color: rgba(255, 255, 255, 0.8);
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+}
+
+.loader__spinner {
+  border: 5px solid #d0d0d0;
+  border-top: 5px solid #ff1500;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  animation: spin .3s linear infinite; /* Reduced animation duration from .5s to .3s */
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.loader p {
+  margin-top: 20px;
+  color: black;
+  font-size: 18px;
+}
