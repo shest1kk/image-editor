@@ -3,6 +3,7 @@ import { ImageContext } from '@/ImageProvider';
 import TheButton from '@components/Button/TheButton';
 import { Link, useNavigate } from 'react-router-dom';
 import Loader from '@components/Loader/Loader';
+import { ImageLoader } from '@utils/ImageFormats/ImageLoader';
 import './StartPage.css';
 
 const StartPage = () => {
@@ -20,20 +21,62 @@ const StartPage = () => {
             setIsLoading(false);
         }, 1500);
 
+        // Очищаем метаданные при загрузке стартовой страницы
+        localStorage.removeItem('imageFormatData');
+
+        // Показываем информацию о поддержке GrayBit-7
+        console.log(`
+🎨 РЕДАКТОР ИЗОБРАЖЕНИЙ - Поддержка GrayBit-7
+
+Новый формат GrayBit-7 (.gb7) теперь поддерживается!
+
+📥 ЗАГРУЗКА:
+• Перетащите .gb7 файл в область загрузки
+• Используйте кнопку "Загрузить изображение" 
+• Поддерживается 7-битное изображение в градациях серого
+• Поддерживается альфа-маска (опционально)
+
+📤 ЭКСПОРТ:
+• Меню "Экспорт" → "GrayBit-7"
+• Автоматическое преобразование в градации серого
+• Сжатие 8-бит → 7-бит значений
+        `);
+
         return () => clearTimeout(timer);
     }, []);
 
     const handleButtonClick = () => inputFile.current.click();
 
-    const handleImageChange = (event) => {
+    const handleImageChange = async (event) => {
         const file = event.target.files?.[0];
         if (file) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                setPreviewImage(e.target.result);
-                setImage(e.target.result);
-            };
-            reader.readAsDataURL(file);
+            try {
+                if (!ImageLoader.isSupportedFormat(file.name)) {
+                    setError(`Неподдерживаемый формат файла: ${ImageLoader.getFileExtension(file.name)}`);
+                    return;
+                }
+
+                const imageData = await ImageLoader.loadFromFile(file);
+                setPreviewImage(imageData.src);
+                setImage(imageData.src, imageData.size || file.size);
+                setError('');
+
+                // Сохраняем метаданные формата для использования в редакторе
+                if (imageData.format === 'GrayBit-7') {
+                    localStorage.setItem('imageFormatData', JSON.stringify({
+                        format: imageData.format,
+                        originalFormat: imageData.originalFormat,
+                        colorDepth: imageData.colorDepth,
+                        metadata: imageData.metadata
+                    }));
+                    console.log('Загружен файл GrayBit-7:', imageData.metadata);
+                } else {
+                    localStorage.removeItem('imageFormatData');
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки файла:', error);
+                setError(`Ошибка загрузки файла: ${error.message}`);
+            }
         }
     };
 
@@ -112,12 +155,13 @@ const StartPage = () => {
                         <p>Привет! Этот сервис предназначен для обработки изображений.</p>
                         <p>Ты можешь загрузить изображение по кнопке ниже, или просто перетащить сюда изображение / вставить его (CTRL+V).</p>
                     </div>
-                    <input ref={inputFile} style={{ display: 'none' }} type="file" accept="image/*" onChange={handleImageChange} />
+                    <input ref={inputFile} style={{ display: 'none' }} type="file" accept={ImageLoader.getAcceptString()} onChange={handleImageChange} />
                     <div className="home__actions">
                         <div className="home__load-buttons" style={{ width: '100%' }}>
-                            <TheButton onClick={handleButtonClick} title="Загрузка изображения с компьютера" normal style={{ width: '100%' }}>
+                            <TheButton onClick={handleButtonClick} title="Загрузка изображения с компьютера (поддерживает JPG, PNG, GIF, BMP, WebP, SVG, GrayBit-7)" normal style={{ width: '100%' }}>
                                 Загрузить изображение
                             </TheButton>
+                            {error && <p style={{ color: 'red', marginTop: '10px', textAlign: 'center' }}>{error}</p>}
                             <TheButton onClick={handleModalOpen} title="Вставить URL" normal style={{ width: '100%', marginTop: '10px' }}>
                                 Вставить URL
                             </TheButton>

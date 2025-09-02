@@ -26,7 +26,7 @@ const MenuBar = ({
   return (
     <div className="editor__menu-bar menu-bar">
       <div className="menu-bar__actions">
-        <ButtonIcon link="/" onClick={() => localStorage.removeItem('lastEditedImage')}>Главная</ButtonIcon>
+        <ButtonIcon link="/">Главная</ButtonIcon>
         {image && (
           <>
             <ButtonIcon title="Экспорт" onClick={handleExportClick}>Экспорт</ButtonIcon>
@@ -37,6 +37,7 @@ const MenuBar = ({
             >
               <MenuItem onClick={() => handleDownload('PNG')}>PNG</MenuItem>
               <MenuItem onClick={() => handleDownload('JPG')}>JPG</MenuItem>
+              <MenuItem onClick={() => handleDownload('GB7')}>GrayBit-7</MenuItem>
               <MenuItem onClick={handleTelegramShare}>
                 <TelegramIcon style={{ marginRight: '8px' }} />
                 Telegram

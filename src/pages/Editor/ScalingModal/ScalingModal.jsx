@@ -73,36 +73,47 @@ const ScalingModal = ({ image, closeModal }) => {
     const handleWidthChange = (event) => {
         const value = event.target.value;
         setWidth(value);
+        let newHeightValue = height;
         if (lockAspectRatio) {
             const newHeight = resizeMode === 'Проценты' ? value : Math.round(Number(value) / aspectRatio);
             setHeight(newHeight.toString());
+            newHeightValue = newHeight.toString();
         }
-        updateResizedSize(value, height);
+        updateResizedSize(value, newHeightValue);
     };
 
     const handleHeightChange = (event) => {
         const value = event.target.value;
         setHeight(value);
+        let newWidthValue = width;
         if (lockAspectRatio) {
             const newWidth = resizeMode === 'Проценты' ? value : Math.round(Number(value) * aspectRatio);
             setWidth(newWidth.toString());
+            newWidthValue = newWidth.toString();
         }
-        updateResizedSize(width, value);
+        updateResizedSize(newWidthValue, value);
     };
 
     const updateResizedSize = (widthValue, heightValue) => {
         const newWidthValue = Number(widthValue);
         const newHeightValue = Number(heightValue);
         let megapixels;
+        let actualNewWidth, actualNewHeight;
+        
         if (resizeMode === 'Проценты') {
             megapixels = initialMegapixels * (newWidthValue / 100) * (newHeightValue / 100);
+            // Рассчитываем фактические размеры в пикселях для процентов
+            actualNewWidth = (image.naturalWidth * newWidthValue) / 100;
+            actualNewHeight = (image.naturalHeight * newHeightValue) / 100;
         } else {
             megapixels = (newWidthValue * newHeightValue) / 1000000;
+            actualNewWidth = newWidthValue;
+            actualNewHeight = newHeightValue;
         }
         setResizedSize(formatSize(megapixels));
 
         // Estimate new file size based on dimensions change
-        const scaleFactor = (newWidthValue * newHeightValue) / (image.naturalWidth * image.naturalHeight);
+        const scaleFactor = (actualNewWidth * actualNewHeight) / (image.naturalWidth * image.naturalHeight);
         const estimatedNewFileSize = initialFileSize * scaleFactor;
         setResizedFileSize(estimatedNewFileSize);
     };
@@ -157,13 +168,20 @@ const ScalingModal = ({ image, closeModal }) => {
 
     const handleResizeModeChange = (selectedOption) => {
         setResizeMode(selectedOption);
+        let newWidth, newHeight;
         if (selectedOption === 'Проценты') {
-            setWidth('100');
-            setHeight('100');
+            newWidth = '100';
+            newHeight = '100';
+            setWidth(newWidth);
+            setHeight(newHeight);
         } else {
-            setWidth(image.width.toString());
-            setHeight(image.height.toString());
+            newWidth = image.width.toString();
+            newHeight = image.height.toString();
+            setWidth(newWidth);
+            setHeight(newHeight);
         }
+        // Обновляем расчет размера с учетом нового режима
+        setTimeout(() => updateResizedSize(newWidth, newHeight), 0);
     };
 
     const handleInterpolationAlgorithmChange = (selectedOption) => {

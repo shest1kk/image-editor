@@ -1,11 +1,12 @@
 import React, { useRef, useContext, useEffect, useState, useCallback } from "react";
+import { Navigate } from "react-router-dom";
 import { ImageContext } from "@/ImageProvider";
 import "./Editor.css";
 
 import ToolPanel from "@components/ToolPanel/ToolPanel";
 import MenuBar from "@components/MenuBar/MenuBar";
 import StatusBar from "@components/StatusBar/StatusBar";
-import ImageChoice from "@components/ImageChoice/ImageChoice";
+
 import EditorCanvas from "@components/EditorCanvas/EditorCanvas";
 
 import Modal from "@components/Modal/Modal";
@@ -13,6 +14,8 @@ import ScalingModal from "./ScalingModal/ScalingModal";
 import ContextModal from "@components/ContextModal/ContextModal";
 import CurvesModal from "./CurvesModal/CurvesModal";
 import FilterModal from "./FilterModal/FilterModal";
+import { GrayBit7Handler } from "@utils/ImageFormats/GrayBit7";
+import { ColorDepthAnalyzer } from "@utils/ImageAnalysis/colorDepth";
 
 import {
   updateTranslation,
@@ -37,6 +40,8 @@ const Editor = () => {
   const [pipetteColor2, setPipetteColor2] = useState("");
   const [cursor, setCursor] = useState({ x: 0, y: 0 });
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [colorDepth, setColorDepth] = useState('24-bit RGB');
+  const [originalFormat, setOriginalFormat] = useState(null);
   const [fileSize, setFileSize] = useState(0);
   const [scaleFactor, setScaleFactor] = useState(100); // Default to 100%
   const [infoActive, setInfoActive] = useState(false);
@@ -53,7 +58,7 @@ const Editor = () => {
   const [isModalFilterOpen, setIsModalFilterOpen] = useState(false);
   const [isContextModalOpen, setIsContextModalOpen] = useState(false);
 
-  const [showImageChoice, setShowImageChoice] = useState(true);
+
 
   const canvas = useRef();
   const context = useRef();
@@ -112,40 +117,6 @@ const Editor = () => {
   // Функция для переключения между светлой и темной темами
   const toggleTheme = () => {
     setIsDarkMode(!isDarkMode);
-  };
-
-  useEffect(() => {
-    const savedImage = localStorage.getItem('lastEditedImage');
-    if (savedImage && !image) {
-      setShowImageChoice(true);
-    } else {
-      setShowImageChoice(false);
-    }
-  }, [image]);
-
-  const handleContinueEditing = () => {
-    const savedImage = localStorage.getItem('lastEditedImage');
-    if (savedImage) {
-      setImage(savedImage);
-    }
-    setShowImageChoice(false);
-  };
-
-  const handleLoadNewImage = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.onchange = (e) => {
-      const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setImage(event.target.result);
-        localStorage.setItem('lastEditedImage', event.target.result);
-      };
-      reader.readAsDataURL(file);
-    };
-    input.click();
-    setShowImageChoice(false);
   };
 
   const openModal = () => {
@@ -213,12 +184,47 @@ const Editor = () => {
       canvasElement.width = workspaceWidth;
       canvasElement.height = workspaceHeight;
 
+      // Проверяем сохраненные метаданные формата
+      const savedFormatData = localStorage.getItem('imageFormatData');
+      if (savedFormatData) {
+        try {
+          const formatData = JSON.parse(savedFormatData);
+          setColorDepth(formatData.colorDepth || '24-bit RGB');
+          setOriginalFormat(formatData);
+        } catch (error) {
+          console.warn('Ошибка чтения метаданных формата:', error);
+          setOriginalFormat(null);
+          // Fallback к анализу
+          try {
+            const colorDepthInfo = ColorDepthAnalyzer.analyzeColorDepth(img);
+            setColorDepth(colorDepthInfo.description);
+          } catch (analysisError) {
+            setColorDepth('24-bit RGB');
+          }
+        }
+      } else {
+        // Анализируем глубину цвета изображения
+        try {
+          const colorDepthInfo = ColorDepthAnalyzer.analyzeColorDepth(img);
+          setColorDepth(colorDepthInfo.description);
+        } catch (error) {
+          console.warn('Ошибка анализа глубины цвета:', error);
+          setColorDepth('24-bit RGB');
+        }
+        setOriginalFormat(null);
+      }
+
       const drawImage = () => {
         context.current.clearRect(0, 0, canvasElement.width, canvasElement.height);
         
         // Calculate center position
         const centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x; // Add imagePosition.x
         const centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y; // Add imagePosition.y
+
+        // Если изображение имеет прозрачность, рисуем шахматный фон
+        if (originalFormat && originalFormat.metadata && originalFormat.metadata.hasMask) {
+          drawTransparencyBackground(context.current, centerX, centerY, scaledWidth, scaledHeight);
+        }
 
         context.current.drawImage(
             img,
@@ -431,58 +437,137 @@ const Editor = () => {
     setAnchorEl(null);
   };
 
-  const handleDownload = (format) => {
-    const canvasRef = canvas.current;
-    if (!canvasRef) return;
+  // Функция для проверки наличия прозрачности в изображении
+  const checkImageHasTransparency = (imageData) => {
+    const data = imageData.data;
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] < 255) {
+        return true; // Найден пиксель с прозрачностью
+      }
+    }
+    return false; // Все пиксели непрозрачные
+  };
 
-    const context = canvasRef.getContext("2d");
+  // Функция для отрисовки шахматного фона под прозрачными областями
+  const drawTransparencyBackground = (ctx, x, y, width, height) => {
+    const squareSize = 10; // Размер квадрата в пикселях
+    
+    ctx.save();
+    
+    // Создаем паттерн шахматной доски
+    for (let posY = Math.floor(y); posY < y + height; posY += squareSize) {
+      for (let posX = Math.floor(x); posX < x + width; posX += squareSize) {
+        const squareX = Math.floor((posX - x) / squareSize);
+        const squareY = Math.floor((posY - y) / squareSize);
+        
+        // Определяем цвет квадрата (белый или светло-серый)
+        const isLight = (squareX + squareY) % 2 === 0;
+        ctx.fillStyle = isLight ? '#ffffff' : '#e0e0e0';
+        
+        // Рисуем квадрат, ограничивая его размерами изображения
+        const rectWidth = Math.min(squareSize, x + width - posX);
+        const rectHeight = Math.min(squareSize, y + height - posY);
+        
+        if (rectWidth > 0 && rectHeight > 0) {
+          ctx.fillRect(posX, posY, rectWidth, rectHeight);
+        }
+      }
+    }
+    
+    ctx.restore();
+  };
+
+  const handleDownload = (format) => {
+    // Создаем временный canvas для экспорта, не затрагивая основной
+    const tempCanvas = document.createElement('canvas');
+    const tempContext = tempCanvas.getContext('2d');
 
     const img = new Image();
     img.src = image;
     img.crossOrigin = "anonymous";
 
     img.onload = () => {
-      canvasRef.width = img.width;
-      canvasRef.height = img.height;
-      context.drawImage(img, 0, 0);
-      const url = canvasRef.toDataURL(format === 'JPG' ? 'image/jpeg' : 'image/png');
-      const a = document.createElement("a");
-      document.body.appendChild(a);
-      a.href = url;
-      a.download = `editedImage.${format.toLowerCase()}`;
-      a.click();
-      document.body.removeChild(a);
+      // Устанавливаем размеры временного canvas по размерам изображения
+      tempCanvas.width = img.width;
+      tempCanvas.height = img.height;
+      
+      // Рисуем изображение на временном canvas
+      tempContext.drawImage(img, 0, 0);
+      
+      if (format === 'GB7') {
+        // Экспорт в формат GrayBit-7
+        const imageData = tempContext.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+        
+        // Определяем, нужна ли маска (есть ли прозрачность)
+        const hasTransparency = checkImageHasTransparency(imageData);
+        
+        const buffer = GrayBit7Handler.encode(imageData, hasTransparency);
+        const url = GrayBit7Handler.createDownloadURL(buffer, 'editedImage.gb7');
+        
+        const a = document.createElement("a");
+        document.body.appendChild(a);
+        a.href = url;
+        a.download = 'editedImage.gb7';
+        a.click();
+        document.body.removeChild(a);
+        
+        // Очищаем URL через некоторое время
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } else {
+        // Стандартный экспорт
+        const url = tempCanvas.toDataURL(format === 'JPG' ? 'image/jpeg' : 'image/png');
+        const a = document.createElement("a");
+        document.body.appendChild(a);
+        a.href = url;
+        a.download = `editedImage.${format.toLowerCase()}`;
+        a.click();
+        document.body.removeChild(a);
+      }
     };
     handleClose();
   };
 
   const handleTelegramShare = () => {
-    const canvasRef = canvas.current;
-    if (!canvasRef) return;
+    // Создаем временный canvas для Telegram share, не затрагивая основной
+    const tempCanvas = document.createElement('canvas');
+    const tempContext = tempCanvas.getContext('2d');
 
-    canvasRef.toBlob((blob) => {
-      const file = new File([blob], "image.png", { type: "image/png" });
-      
-      // Create a temporary URL for the file
-      const fileUrl = URL.createObjectURL(file);
-      
-      // Construct the Telegram share URL
-      const telegramUrl = `tg://msg_ext_share_url?url=${encodeURIComponent(fileUrl)}`;
-      
-      // Try to open the Telegram app
-      window.location.href = telegramUrl;
-      
-      // If the Telegram app doesn't open after a short delay, fall back to web version
-      setTimeout(() => {
-        const webTelegramUrl = `https://t.me/share/url?url=${encodeURIComponent(fileUrl)}`;
-        window.open(webTelegramUrl, '_blank');
-      }, 500);
+    const img = new Image();
+    img.src = image;
+    img.crossOrigin = "anonymous";
 
-      // Clean up the temporary URL after a delay
-      setTimeout(() => {
-        URL.revokeObjectURL(fileUrl);
-      }, 60000); // Clean up after 1 minute
-    }, 'image/png');
+    img.onload = () => {
+      // Устанавливаем размеры временного canvas по размерам изображения
+      tempCanvas.width = img.width;
+      tempCanvas.height = img.height;
+      
+      // Рисуем изображение на временном canvas
+      tempContext.drawImage(img, 0, 0);
+
+      tempCanvas.toBlob((blob) => {
+        const file = new File([blob], "image.png", { type: "image/png" });
+        
+        // Create a temporary URL for the file
+        const fileUrl = URL.createObjectURL(file);
+        
+        // Construct the Telegram share URL
+        const telegramUrl = `tg://msg_ext_share_url?url=${encodeURIComponent(fileUrl)}`;
+        
+        // Try to open the Telegram app
+        window.location.href = telegramUrl;
+        
+        // If the Telegram app doesn't open after a short delay, fall back to web version
+        setTimeout(() => {
+          const webTelegramUrl = `https://t.me/share/url?url=${encodeURIComponent(fileUrl)}`;
+          window.open(webTelegramUrl, '_blank');
+        }, 500);
+
+        // Clean up the temporary URL after a delay
+        setTimeout(() => {
+          URL.revokeObjectURL(fileUrl);
+        }, 60000); // Clean up after 1 minute
+      }, 'image/png');
+    };
     
     handleClose();
   };
@@ -543,7 +628,7 @@ const Editor = () => {
 
     setImage(newImage);
     setFileSize(formatFileSize(newFileSize));
-    localStorage.setItem('lastEditedImage', newImage);
+
     addToHistory(newImage);
   };
 
@@ -553,22 +638,9 @@ const Editor = () => {
     return () => document.body.removeEventListener("keydown", handleKeyDownEvent);
   }, [toolActive, canvasTranslation]);
 
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      if (image) {
-        localStorage.setItem('lastEditedImage', image);
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [image]);
-
-  if (showImageChoice) {
-    return <ImageChoice handleContinueEditing={handleContinueEditing} handleLoadNewImage={handleLoadNewImage} />;
+  // Если нет изображения, перенаправляем на главную страницу
+  if (!image) {
+    return <Navigate to="/" replace />;
   }
 
   return (
@@ -616,6 +688,7 @@ const Editor = () => {
         dimensions={dimensions}
         fileSize={fileSize}
         mouseCoords={mouseCoords}
+        colorDepth={colorDepth}
       />
       <Modal isOpen={isModalOpen} onClose={closeModal} title="Масштабирование изображения">
         <ScalingModal image={imageObj} setImage={updateImage} closeModal={closeModal} />
