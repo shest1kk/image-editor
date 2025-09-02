@@ -40,6 +40,7 @@ const Editor = () => {
   const [pipetteColor2, setPipetteColor2] = useState("");
   const [cursor, setCursor] = useState({ x: 0, y: 0 });
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [originalDimensions, setOriginalDimensions] = useState({ width: 0, height: 0 });
   const [colorDepth, setColorDepth] = useState('24-bit RGB');
   const [originalFormat, setOriginalFormat] = useState(null);
   const [fileSize, setFileSize] = useState(0);
@@ -172,8 +173,8 @@ const Editor = () => {
         setScaleFactor(newScaleFactor);
       }
 
-      const scaledWidth = img.width * (scaleFactor / 100);
-      const scaledHeight = img.height * (scaleFactor / 100);
+      // Устанавливаем исходные размеры изображения
+      setOriginalDimensions({ width: img.width, height: img.height });
 
       const canvasElement = canvas.current;
       if (!canvasElement) return;
@@ -214,31 +215,49 @@ const Editor = () => {
         setOriginalFormat(null);
       }
 
-      const drawImage = () => {
+      // Функция для перерисовки canvas
+      window.redrawCanvas = () => {
+        if (!context.current || !canvasElement) return;
+        
+        // Пересчитываем размеры при каждой перерисовке
+        const currentScaledWidth = img.width * (scaleFactor / 100);
+        const currentScaledHeight = img.height * (scaleFactor / 100);
+        
         context.current.clearRect(0, 0, canvasElement.width, canvasElement.height);
         
         // Calculate center position
-        const centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x; // Add imagePosition.x
-        const centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y; // Add imagePosition.y
+        const centerX = (canvasElement.width - currentScaledWidth) / 2 + imagePosition.x;
+        const centerY = (canvasElement.height - currentScaledHeight) / 2 + imagePosition.y;
 
         // Если изображение имеет прозрачность, рисуем шахматный фон
         if (originalFormat && originalFormat.metadata && originalFormat.metadata.hasMask) {
-          drawTransparencyBackground(context.current, centerX, centerY, scaledWidth, scaledHeight);
+          drawTransparencyBackground(context.current, centerX, centerY, currentScaledWidth, currentScaledHeight);
         }
 
         context.current.drawImage(
             img,
             centerX,
             centerY,
-            scaledWidth,
-            scaledHeight
+            currentScaledWidth,
+            currentScaledHeight
         );
-        requestAnimationFrame(drawImage);
+        
+        // Обновляем dimensions только если размеры изменились
+        setDimensions(prevDimensions => {
+          if (prevDimensions.width !== currentScaledWidth || prevDimensions.height !== currentScaledHeight) {
+            return { width: currentScaledWidth, height: currentScaledHeight };
+          }
+          return prevDimensions;
+        });
       };
 
-      drawImage();
-
-      setDimensions({ width: scaledWidth, height: scaledHeight });
+      // Первоначальная отрисовка
+      window.redrawCanvas();
+      
+      // Принудительная вторая отрисовка через короткий таймаут для обеспечения отображения прозрачности
+      setTimeout(() => {
+        if (window.redrawCanvas) window.redrawCanvas();
+      }, 50);
       calculateFileSize(img.src).then(size => setFileSize(formatFileSize(size)));
 
       // Обработчик события колесика мыши для масштабирования
@@ -282,6 +301,13 @@ const Editor = () => {
       };
     };
   }, [image, scaleFactor, imagePosition]);
+
+  // useEffect для перерисовки при изменении масштаба или позиции
+  useEffect(() => {
+    if (window.redrawCanvas) {
+      window.redrawCanvas();
+    }
+  }, [scaleFactor, imagePosition]);
 
   const [currentColor, setCurrentColor] = useState("");
 
@@ -686,6 +712,7 @@ const Editor = () => {
       <StatusBar 
         image={image}
         dimensions={dimensions}
+        originalDimensions={originalDimensions}
         fileSize={fileSize}
         mouseCoords={mouseCoords}
         colorDepth={colorDepth}

@@ -1,11 +1,11 @@
 import React from 'react';
 
-const StatusBar = ({ image, dimensions, fileSize, mouseCoords, colorDepth }) => {
+const StatusBar = ({ image, dimensions, originalDimensions, fileSize, mouseCoords, colorDepth }) => {
   return (
     <div className="editor__status-bar status-bar">
       {image && (
         <>
-          <span className="status-bar__text">Разрешение: {Math.round(dimensions.width)}&nbsp;x&nbsp;{Math.round(dimensions.height)}&nbsp;px</span>
+          <span className="status-bar__text">Исходные размеры: {originalDimensions.width}&nbsp;x&nbsp;{originalDimensions.height}&nbsp;px</span>
           <span className="status-bar__text">Размер файла: {fileSize}</span>
           <span className="status-bar__text">Глубина цвета: {colorDepth || '24-bit RGB'}</span>
           <span className="status-bar__text">
