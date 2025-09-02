@@ -144,9 +144,10 @@ const Editor = () => {
     setInfoActive(false);
   };
 
-  const handleScaleChange = (event) => {
-    const newScaleFactor = event.target.value;
-    setScaleFactor(newScaleFactor);
+  const handleScaleChange = (newScaleFactor) => {
+    // Поддерживаем и event объекты и прямые значения
+    const value = typeof newScaleFactor === 'object' ? newScaleFactor.target.value : newScaleFactor;
+    setScaleFactor(Number(value));
   };
 
   // Эффект для обработки загрузки изображения и настройки холста
@@ -162,16 +163,22 @@ const Editor = () => {
       if (!workspace) return;
 
       const { offsetWidth: workspaceWidth, offsetHeight: workspaceHeight } = workspace;
-      const maxWidth = workspaceWidth - 100;
-      const maxHeight = workspaceHeight - 100;
+      const maxWidth = workspaceWidth - 100; // 50px отступ с каждой стороны
+      const maxHeight = workspaceHeight - 100; // 50px отступ с каждой стороны
 
+      // Всегда рассчитываем масштаб для максимального заполнения экрана с отступами 50px
       const widthScale = maxWidth / img.width;
       const heightScale = maxHeight / img.height;
-      const newScaleFactor = Math.min(widthScale, heightScale) * 100;
+      let calculatedScale = Math.min(widthScale, heightScale) * 100;
       
-      if (scaleFactor === 0) {
-        setScaleFactor(newScaleFactor);
-      }
+      // Ограничиваем масштаб в диапазоне 12% - 300%
+      const newScaleFactor = Math.max(12, Math.min(300, calculatedScale));
+      
+      // Устанавливаем оптимальный масштаб для помещения изображения
+      setScaleFactor(newScaleFactor);
+
+      // Сбрасываем позицию изображения при загрузке нового
+      setImagePosition({ x: 0, y: 0 });
 
       // Устанавливаем исходные размеры изображения
       setOriginalDimensions({ width: img.width, height: img.height });
@@ -216,7 +223,7 @@ const Editor = () => {
       }
 
       // Функция для перерисовки canvas
-      window.redrawCanvas = () => {
+      const redrawCanvas = () => {
         if (!context.current || !canvasElement) return;
         
         // Пересчитываем размеры при каждой перерисовке
@@ -225,9 +232,9 @@ const Editor = () => {
         
         context.current.clearRect(0, 0, canvasElement.width, canvasElement.height);
         
-        // Calculate center position
-        const centerX = (canvasElement.width - currentScaledWidth) / 2 + imagePosition.x;
-        const centerY = (canvasElement.height - currentScaledHeight) / 2 + imagePosition.y;
+        // Calculate center position (при загрузке изображения позиция всегда (0,0))
+        const centerX = (canvasElement.width - currentScaledWidth) / 2;
+        const centerY = (canvasElement.height - currentScaledHeight) / 2;
 
         // Если изображение имеет прозрачность, рисуем шахматный фон
         if (originalFormat && originalFormat.metadata && originalFormat.metadata.hasMask) {
@@ -250,31 +257,32 @@ const Editor = () => {
           return prevDimensions;
         });
       };
-
-      // Первоначальная отрисовка
-      window.redrawCanvas();
       
-      // Принудительная вторая отрисовка через короткий таймаут для обеспечения отображения прозрачности
-      setTimeout(() => {
-        if (window.redrawCanvas) window.redrawCanvas();
-      }, 50);
+      // Сохраняем функцию в глобальной области для доступа из других useEffect
+      window.redrawCanvas = redrawCanvas;
+
+      // Первоначальная отрисовка будет выполнена через drawImageOnCanvas useEffect
       calculateFileSize(img.src).then(size => setFileSize(formatFileSize(size)));
 
       // Обработчик события колесика мыши для масштабирования
       const handleWheel = (event) => {
         event.preventDefault();
         const delta = event.deltaY;
-        const scaleSteps = [10, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200, 220, 240, 260, 280, 300];
-        const currentIndex = scaleSteps.indexOf(scaleFactor);
-        let newIndex = currentIndex;
+        const scaleStep = 10; // Шаг изменения масштаба в процентах
+        
+        // Используем функциональный setter для получения актуального значения
+        setScaleFactor(currentScale => {
+          let newScale = currentScale;
+          
+          if (delta < 0) { // Колесико вверх - увеличение
+            newScale = currentScale + scaleStep;
+          } else { // Колесико вниз - уменьшение
+            newScale = currentScale - scaleStep;
+          }
 
-        if (delta < 0) { // Изменение направления для увеличения
-          newIndex = Math.min(currentIndex + 1, scaleSteps.length - 1);
-        } else {
-          newIndex = Math.max(currentIndex - 1, 0);
-        }
-
-        setScaleFactor(scaleSteps[newIndex]);
+          // Ограничиваем масштаб в диапазоне 12% - 300%
+          return Math.max(12, Math.min(300, newScale));
+        });
       };
 
       // Обработчик события касания для масштабирования на мобильных устройствах
@@ -300,14 +308,50 @@ const Editor = () => {
         }
       };
     };
-  }, [image, scaleFactor, imagePosition]);
+  }, [image]); // Убираем scaleFactor из зависимостей - этот useEffect должен выполняться только при смене изображения
 
-  // useEffect для перерисовки при изменении масштаба или позиции
+  // Основная функция перерисовки canvas
+  const drawImageOnCanvas = useCallback(() => {
+    if (!context.current || !canvas.current || !image) return;
+    
+    const canvasElement = canvas.current;
+    const img = new Image();
+    img.src = image;
+    
+    img.onload = () => {
+      // Очищаем canvas
+      context.current.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      
+      // Рассчитываем размеры с текущим масштабом
+      const scaledWidth = img.width * (scaleFactor / 100);
+      const scaledHeight = img.height * (scaleFactor / 100);
+      
+      // Рассчитываем позицию для центрирования + смещение от перетаскивания
+      const centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x;
+      const centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y;
+
+      // Рисуем фон для прозрачности если нужно
+      if (originalFormat && originalFormat.metadata && originalFormat.metadata.hasMask) {
+        drawTransparencyBackground(context.current, centerX, centerY, scaledWidth, scaledHeight);
+      }
+
+      // Рисуем изображение
+      context.current.drawImage(img, centerX, centerY, scaledWidth, scaledHeight);
+      
+      // Обновляем dimensions для других компонентов
+      setDimensions({ width: scaledWidth, height: scaledHeight });
+    };
+  }, [image, scaleFactor, imagePosition, originalFormat]);
+
+  // Центрируем изображение при изменении масштаба
   useEffect(() => {
-    if (window.redrawCanvas) {
-      window.redrawCanvas();
-    }
-  }, [scaleFactor, imagePosition]);
+    setImagePosition({ x: 0, y: 0 });
+  }, [scaleFactor]);
+
+  // Перерисовываем при изменении масштаба или позиции
+  useEffect(() => {
+    drawImageOnCanvas();
+  }, [drawImageOnCanvas]);
 
   const [currentColor, setCurrentColor] = useState("");
 
@@ -716,6 +760,8 @@ const Editor = () => {
         fileSize={fileSize}
         mouseCoords={mouseCoords}
         colorDepth={colorDepth}
+        scaleFactor={scaleFactor}
+        onScaleChange={handleScaleChange}
       />
       <Modal isOpen={isModalOpen} onClose={closeModal} title="Масштабирование изображения">
         <ScalingModal image={imageObj} setImage={updateImage} closeModal={closeModal} />

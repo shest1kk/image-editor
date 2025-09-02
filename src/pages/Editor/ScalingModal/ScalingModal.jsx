@@ -22,9 +22,23 @@ const ScalingModal = ({ image, closeModal }) => {
     const [initialMegapixels, setInitialMegapixels] = useState(0);
     const [initialFileSize, setInitialFileSize] = useState(0);
     const [resizedFileSize, setResizedFileSize] = useState(0);
+    const [showTooltip, setShowTooltip] = useState(false);
 
     const formatSize = (megapixels) => {
         return megapixels > 1 ? `${megapixels.toFixed(2)} MP` : `${(megapixels * 1000000).toFixed(0)} pixels`;
+    };
+
+    const getInterpolationDescription = (algorithm) => {
+        switch (algorithm) {
+            case 'Ближайший сосед':
+                return 'Быстрый алгоритм, сохраняет резкие края. Подходит для пиксель-арта и изображений с четкими границами. Может создавать зубчатые края при увеличении.';
+            case 'Билинейный':
+                return 'Балансирует качество и скорость. Создает более гладкие результаты чем ближайший сосед. Хороший выбор для большинства изображений.';
+            case 'Бикубический':
+                return 'Высокое качество с наилучшей детализацией. Медленнее других методов. Рекомендуется для фотографий и детализированных изображений.';
+            default:
+                return '';
+        }
     };
 
     useEffect(() => {
@@ -58,17 +72,39 @@ const ScalingModal = ({ image, closeModal }) => {
     }, [image, resizeMode]);
 
     useEffect(() => {
-        if (!Number.isInteger(Number(height)) || Number(height) <= 0) {
-            setHeightError('⚠ Высота должна быть целым положительным числом');
-        } else {
-            setHeightError('');
-        }
-        if (!Number.isInteger(Number(width)) || Number(width) <= 0) {
-            setWidthError('⚠ Ширина должна быть целым положительным числом');
-        } else {
-            setWidthError('');
-        }
-    }, [height, width]);
+        const validateDimensions = () => {
+            const heightNum = Number(height);
+            const widthNum = Number(width);
+            
+            // Валидация высоты
+            if (!Number.isInteger(heightNum) || heightNum <= 0) {
+                setHeightError('⚠ Высота должна быть целым положительным числом');
+            } else if (heightNum < 1) {
+                setHeightError('⚠ Минимальная высота: 1 пиксель');
+            } else if (heightNum > 32768) {
+                setHeightError('⚠ Максимальная высота: 32768 пикселей');
+            } else if (resizeMode === 'Проценты' && (heightNum < 1 || heightNum > 1000)) {
+                setHeightError('⚠ Проценты должны быть от 1% до 1000%');
+            } else {
+                setHeightError('');
+            }
+            
+            // Валидация ширины
+            if (!Number.isInteger(widthNum) || widthNum <= 0) {
+                setWidthError('⚠ Ширина должна быть целым положительным числом');
+            } else if (widthNum < 1) {
+                setWidthError('⚠ Минимальная ширина: 1 пиксель');
+            } else if (widthNum > 32768) {
+                setWidthError('⚠ Максимальная ширина: 32768 пикселей');
+            } else if (resizeMode === 'Проценты' && (widthNum < 1 || widthNum > 1000)) {
+                setWidthError('⚠ Проценты должны быть от 1% до 1000%');
+            } else {
+                setWidthError('');
+            }
+        };
+        
+        validateDimensions();
+    }, [height, width, resizeMode]);
 
     const handleWidthChange = (event) => {
         const value = event.target.value;
@@ -119,6 +155,11 @@ const ScalingModal = ({ image, closeModal }) => {
     };
 
     const handleResizeConfirm = () => {
+        // Проверяем наличие ошибок валидации
+        if (widthError || heightError) {
+            return; // Не выполняем операцию если есть ошибки
+        }
+        
         localStorage.setItem('resizeMode', resizeMode);
         localStorage.setItem('width', width);
         localStorage.setItem('height', height);
@@ -235,13 +276,30 @@ const ScalingModal = ({ image, closeModal }) => {
                 <label className="form__label" htmlFor="interpolation-algorithm">Алгоритм интерполяции</label>
                 <div className="form__select-iterpolation">
                     <Dropdown id="interpolation-algorithm" options={["Ближайший сосед", "Билинейный", "Бикубический"]} onSelect={handleInterpolationAlgorithmChange} selectOption={interpolationAlgorithm} />
+                    <div 
+                        className="form__tooltip-trigger"
+                        onMouseEnter={() => setShowTooltip(true)}
+                        onMouseLeave={() => setShowTooltip(false)}
+                    >
+                        ℹ️
+                        {showTooltip && (
+                            <div className="form__tooltip">
+                                {getInterpolationDescription(interpolationAlgorithm)}
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
             <div className="form__errors">
                 {widthError && <p className="form__error">{widthError}</p>}
                 {heightError && <p className="form__error">{heightError}</p>}
             </div>
-            <TheButton className="form__button" accent={true} onClick={handleResizeConfirm}>
+            <TheButton 
+                className="form__button" 
+                accent={true} 
+                onClick={handleResizeConfirm}
+                disabled={widthError || heightError}
+            >
                 Выполнить
             </TheButton>
         </form>
