@@ -37,7 +37,7 @@ import {
 } from "@utils/ColorSpaces/colorConversions";
 
 const Editor = () => {
-  const { image, setImage } = useContext(ImageContext);
+  const { image, setImage, filename } = useContext(ImageContext);
 
   const [toolActive, setToolActive] = useState("cursor");
   const [pipetteColor1, setPipetteColor1] = useState("");
@@ -757,6 +757,17 @@ const Editor = () => {
     ctx.restore();
   };
 
+  // Вспомогательная функция для генерации имени файла
+  const getExportFilename = (format) => {
+    if (!filename) {
+      return `editedImage.${format.toLowerCase()}`;
+    }
+    
+    // Получаем имя файла без расширения
+    const nameWithoutExt = filename.substring(0, filename.lastIndexOf('.')) || filename;
+    return `${nameWithoutExt}.${format.toLowerCase()}`;
+  };
+
   const handleDownload = (format) => {
     // Создаем временный canvas для экспорта, не затрагивая основной
     const tempCanvas = document.createElement('canvas');
@@ -782,12 +793,13 @@ const Editor = () => {
         const hasTransparency = checkImageHasTransparency(imageData);
         
         const buffer = GrayBit7Handler.encode(imageData, hasTransparency);
-        const url = GrayBit7Handler.createDownloadURL(buffer, 'editedImage.gb7');
+        const exportFilename = getExportFilename('gb7');
+        const url = GrayBit7Handler.createDownloadURL(buffer, exportFilename);
         
         const a = document.createElement("a");
         document.body.appendChild(a);
         a.href = url;
-        a.download = 'editedImage.gb7';
+        a.download = exportFilename;
         a.click();
         document.body.removeChild(a);
         
@@ -795,11 +807,20 @@ const Editor = () => {
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       } else {
         // Стандартный экспорт
-        const url = tempCanvas.toDataURL(format === 'JPG' ? 'image/jpeg' : 'image/png');
+        let url;
+        if (format === 'JPG') {
+          // Для JPG устанавливаем качество 90% (уменьшает размер файла)
+          url = tempCanvas.toDataURL('image/jpeg', 0.9);
+        } else {
+          // Для PNG качество не влияет (lossless), но может варьироваться сжатие
+          url = tempCanvas.toDataURL('image/png');
+        }
+        
+        const exportFilename = getExportFilename(format);
         const a = document.createElement("a");
         document.body.appendChild(a);
         a.href = url;
-        a.download = `editedImage.${format.toLowerCase()}`;
+        a.download = exportFilename;
         a.click();
         document.body.removeChild(a);
       }
@@ -807,50 +828,6 @@ const Editor = () => {
     handleClose();
   };
 
-  const handleTelegramShare = () => {
-    // Создаем временный canvas для Telegram share, не затрагивая основной
-    const tempCanvas = document.createElement('canvas');
-    const tempContext = tempCanvas.getContext('2d');
-
-    const img = new Image();
-    img.src = image;
-    img.crossOrigin = "anonymous";
-
-    img.onload = () => {
-      // Устанавливаем размеры временного canvas по размерам изображения
-      tempCanvas.width = img.width;
-      tempCanvas.height = img.height;
-      
-      // Рисуем изображение на временном canvas
-      tempContext.drawImage(img, 0, 0);
-
-      tempCanvas.toBlob((blob) => {
-        const file = new File([blob], "image.png", { type: "image/png" });
-        
-        // Create a temporary URL for the file
-        const fileUrl = URL.createObjectURL(file);
-        
-        // Construct the Telegram share URL
-        const telegramUrl = `tg://msg_ext_share_url?url=${encodeURIComponent(fileUrl)}`;
-        
-        // Try to open the Telegram app
-        window.location.href = telegramUrl;
-        
-        // If the Telegram app doesn't open after a short delay, fall back to web version
-        setTimeout(() => {
-          const webTelegramUrl = `https://t.me/share/url?url=${encodeURIComponent(fileUrl)}`;
-          window.open(webTelegramUrl, '_blank');
-        }, 500);
-
-        // Clean up the temporary URL after a delay
-        setTimeout(() => {
-          URL.revokeObjectURL(fileUrl);
-        }, 60000); // Clean up after 1 minute
-      }, 'image/png');
-    };
-    
-    handleClose();
-  };
 
   const showPreview = (value) => setShowBg(value);
 
@@ -979,7 +956,6 @@ const Editor = () => {
         open={open}
         handleClose={handleClose}
         handleDownload={handleDownload}
-        handleTelegramShare={handleTelegramShare}
         openModal={openModal}
         openCurvesModal={openCurvesModal}
         openFilterModal={openFilterModal}

@@ -11,15 +11,25 @@ export const ImageContext = createContext();
 export const ImageProvider = ({ children }) => {
   // Состояние для хранения текущего изображения
   const [image, setImage] = useState(null);
+  // Состояние для хранения оригинального имени файла
+  const [filename, setFilename] = useState(null);
 
   // Функция для обновления состояния изображения
-  const updateImage = (newImage) => {
+  const updateImage = (newImage, newFilename = null) => {
     setImage(newImage);
+    if (newFilename !== null) {
+      setFilename(newFilename);
+    }
   };
 
   // Предоставление состояния изображения и функции обновления контексту
   return (
-    <ImageContext.Provider value={{ image, setImage: updateImage }}>
+    <ImageContext.Provider value={{ 
+      image, 
+      filename, 
+      setImage: updateImage,
+      setFilename 
+    }}>
       {children}
     </ImageContext.Provider>
   );

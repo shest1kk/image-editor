@@ -7,7 +7,7 @@ import { ImageLoader } from '@utils/ImageFormats/ImageLoader';
 import './StartPage.css';
 
 const StartPage = () => {
-    const { image, setImage } = useContext(ImageContext);
+    const { image, setImage, setFilename } = useContext(ImageContext);
     const inputFile = useRef(null);
     const [isLoading, setIsLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
@@ -58,7 +58,8 @@ const StartPage = () => {
 
                 const imageData = await ImageLoader.loadFromFile(file);
                 setPreviewImage(imageData.src);
-                setImage(imageData.src, imageData.size || file.size);
+                setImage(imageData.src, file.name);
+                setFilename(file.name);
                 setError('');
 
                 // Сохраняем метаданные формата для использования в редакторе
@@ -88,7 +89,8 @@ const StartPage = () => {
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     setPreviewImage(e.target.result);
-                    setImage(e.target.result);
+                    setImage(e.target.result, `pasted-image-${Date.now()}.png`);
+                    setFilename(`pasted-image-${Date.now()}.png`);
                 };
                 reader.readAsDataURL(file);
             }
@@ -99,12 +101,8 @@ const StartPage = () => {
         event.preventDefault();
         const file = event.dataTransfer.files[0];
         if (file) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                setPreviewImage(e.target.result);
-                setImage(e.target.result);
-            };
-            reader.readAsDataURL(file);
+            // Используем handleImageChange для единообразной обработки
+            handleImageChange({ target: { files: [file] } });
         }
     };
 

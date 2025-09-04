@@ -1,7 +1,6 @@
 import React from 'react';
 import ButtonIcon from "@components/ButtonIcon/ButtonIcon";
 import { Menu, MenuItem } from '@mui/material';
-import TelegramIcon from '@mui/icons-material/Telegram';
 import UndoIcon from '@mui/icons-material/Undo';
 import RedoIcon from '@mui/icons-material/Redo';
 
@@ -14,7 +13,6 @@ const MenuBar = ({
   open, 
   handleClose, 
   handleDownload, 
-  handleTelegramShare,
   openModal,
   openCurvesModal,
   openFilterModal,
@@ -38,10 +36,6 @@ const MenuBar = ({
               <MenuItem onClick={() => handleDownload('PNG')}>PNG</MenuItem>
               <MenuItem onClick={() => handleDownload('JPG')}>JPG</MenuItem>
               <MenuItem onClick={() => handleDownload('GB7')}>GrayBit-7</MenuItem>
-              <MenuItem onClick={handleTelegramShare}>
-                <TelegramIcon style={{ marginRight: '8px' }} />
-                Telegram
-              </MenuItem>
             </Menu>
             <ButtonIcon title="Масштабирование" onClick={openModal}>Масштабировать</ButtonIcon>
             <ButtonIcon title="Кривые" onClick={openCurvesModal}>Кривые</ButtonIcon>
