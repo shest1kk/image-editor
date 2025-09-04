@@ -22,6 +22,7 @@ import {
   handleKeyDown,
   handleKeyUp,
   handleMouseUp,
+  constrainImagePosition,
 } from "@utils/CanvasChange/canvasKeyHand";
 
 
@@ -67,6 +68,8 @@ const Editor = () => {
   const canvas = useRef();
   const context = useRef();
   const animationFrameId = useRef(null);
+  const isDraggingRef = useRef(false);
+  const isMouseWheelDownRef = useRef(false);
 
   const [isMouseDown, setIsMouseDown] = useState(false); // Track mouse button state
   const [selectedTool, setSelectedTool] = useState("cursor"); // New state to track selected tool
@@ -87,6 +90,7 @@ const Editor = () => {
 
   const [isMouseWheelDown, setIsMouseWheelDown] = useState(false);
   const [previousTool, setPreviousTool] = useState("cursor");
+  const [handActivatedByWheel, setHandActivatedByWheel] = useState(false); // Флаг: рука активирована колесом мыши
 
   const [imagePosition, setImagePosition] = useState({ x: 0, y: 0 });
   
@@ -265,6 +269,12 @@ const Editor = () => {
       // Обработчик события колесика мыши для масштабирования
       const handleWheel = (event) => {
         event.preventDefault();
+        
+        // Отключаем скролл/зум если активно перетаскивание
+        if (isDraggingRef.current || isMouseWheelDownRef.current) {
+          return;
+        }
+        
         const delta = event.deltaY;
         const scaleStep = 10; // Шаг изменения масштаба в процентах
         
@@ -306,7 +316,7 @@ const Editor = () => {
         }
       };
     };
-  }, [image]); // Убираем scaleFactor из зависимостей - этот useEffect должен выполняться только при смене изображения
+  }, [image]); // Убираем isDragging и isMouseWheelDown из зависимостей - они будут браться из замыкания
 
   // Основная функция перерисовки canvas
   const drawImageOnCanvas = useCallback(() => {
@@ -340,6 +350,15 @@ const Editor = () => {
       setDimensions({ width: scaledWidth, height: scaledHeight });
     };
   }, [image, scaleFactor, imagePosition, originalFormat]);
+
+  // Синхронизируем ref'ы с состояниями для использования в handleWheel
+  useEffect(() => {
+    isDraggingRef.current = isDragging;
+  }, [isDragging]);
+
+  useEffect(() => {
+    isMouseWheelDownRef.current = isMouseWheelDown;
+  }, [isMouseWheelDown]);
 
   // Центрируем изображение при изменении масштаба
   useEffect(() => {
@@ -397,11 +416,28 @@ const Editor = () => {
       const dx = (x - cursor.x) * sensitivity;
       const dy = (y - cursor.y) * sensitivity;
 
-      // Обновляем позицию изображения с учетом чувствительности
-      setImagePosition(prevPosition => ({
-        x: prevPosition.x + dx,
-        y: prevPosition.y + dy
-      }));
+      // Обновляем позицию изображения с учетом чувствительности и ограничений
+      setImagePosition(prevPosition => {
+        const newX = prevPosition.x + dx;
+        const newY = prevPosition.y + dy;
+        
+        // Получаем размеры canvas и изображения
+        const canvasElement = canvas.current;
+        if (!canvasElement) return prevPosition;
+        
+        const scaledImageWidth = originalDimensions.width * (scaleFactor / 100);
+        const scaledImageHeight = originalDimensions.height * (scaleFactor / 100);
+        
+        // Применяем ограничения
+        return constrainImagePosition(
+          newX, 
+          newY, 
+          canvasElement.width, 
+          canvasElement.height, 
+          scaledImageWidth, 
+          scaledImageHeight
+        );
+      });
     }
 
     // Обновляем курсор в конце
@@ -409,8 +445,25 @@ const Editor = () => {
     setMouseCoords({ x, y });
   }, [isDragging, toolActive, isMouseWheelDown, cursor.x, cursor.y, dimensions, scaleFactor, handToolSensitivity, wheelDragSensitivity]);
 
-  const handleKeyDownEvent = (e) => handleKeyDown(toolActive, canvasTranslation, setCanvasTranslation, e);
-  const handleKeyUpEvent = (e) => handleKeyUp(toolActive, canvasTranslation, setCanvasTranslation, e);
+  const handleKeyDownEvent = (e) => {
+    if (!canvas.current) return;
+    const canvasElement = canvas.current;
+    const scaledImageWidth = originalDimensions.width * (scaleFactor / 100);
+    const scaledImageHeight = originalDimensions.height * (scaleFactor / 100);
+    
+    handleKeyDown(
+      20, // step size для клавиатурного управления
+      toolActive, 
+      imagePosition, 
+      setImagePosition, 
+      canvasElement.width, 
+      canvasElement.height, 
+      scaledImageWidth, 
+      scaledImageHeight, 
+      e
+    );
+  };
+  const handleKeyUpEvent = (e) => handleKeyUp(toolActive, e);
   const handleMouseUpEvent = (e) => {
     if (e.button === 1) { // Middle mouse button
       handleMouseWheelUp(e);
@@ -434,8 +487,10 @@ const Editor = () => {
       e.preventDefault(); // Prevent default scrolling behavior
       
       setIsMouseWheelDown(true);
-      setPreviousTool(toolActive);
+      setHandActivatedByWheel(true); // Помечаем, что рука активирована колесом
+      setPreviousTool(selectedTool); // Сохраняем ВЫБРАННЫЙ инструмент, а не активный
       setToolActive("hand");
+      setSelectedTool("hand"); // Визуально показываем, что рука активна
       setIsDragging(true);
     }
   };
@@ -443,7 +498,14 @@ const Editor = () => {
   const handleMouseWheelUp = (e) => {
     if (e.button === 1) { // Middle mouse button
       setIsMouseWheelDown(false);
-      setToolActive(previousTool);
+      
+      // Восстанавливаем предыдущий инструмент только если рука была активирована колесом
+      if (handActivatedByWheel) {
+        setToolActive(previousTool);
+        setSelectedTool(previousTool);
+        setHandActivatedByWheel(false); // Сбрасываем флаг
+      }
+      
       setIsDragging(false);
     }
   };
@@ -470,6 +532,7 @@ const Editor = () => {
         case "KeyH":
           setSelectedTool("hand");
           setToolActive("hand");
+          setHandActivatedByWheel(false); // Рука выбрана пользователем, а не колесом
           // Закрываем модальное окно пипетки при переключении на руку
           if (isContextModalOpen || infoActive) {
             setIsContextModalOpen(false);
@@ -730,10 +793,27 @@ const Editor = () => {
   };
 
   useEffect(() => {
-    const handleKeyDownEvent = (e) => handleKeyDown(toolActive, canvasTranslation, setCanvasTranslation, e);
-    document.body.addEventListener("keydown", handleKeyDownEvent);
-    return () => document.body.removeEventListener("keydown", handleKeyDownEvent);
-  }, [toolActive, canvasTranslation]);
+    const handleKeyDownEventBody = (e) => {
+      if (!canvas.current) return;
+      const canvasElement = canvas.current;
+      const scaledImageWidth = originalDimensions.width * (scaleFactor / 100);
+      const scaledImageHeight = originalDimensions.height * (scaleFactor / 100);
+      
+      handleKeyDown(
+        20, // step size для клавиатурного управления
+        toolActive, 
+        imagePosition, 
+        setImagePosition, 
+        canvasElement.width, 
+        canvasElement.height, 
+        scaledImageWidth, 
+        scaledImageHeight, 
+        e
+      );
+    };
+    document.body.addEventListener("keydown", handleKeyDownEventBody);
+    return () => document.body.removeEventListener("keydown", handleKeyDownEventBody);
+  }, [toolActive, imagePosition, scaleFactor, originalDimensions]);
 
   // Если нет изображения, перенаправляем на главную страницу
   if (!image) {
@@ -767,6 +847,7 @@ const Editor = () => {
         setInfoActive={setInfoActive}
         setIsContextModalOpen={setIsContextModalOpen}
         isMouseWheelDown={isMouseWheelDown}
+        setHandActivatedByWheel={setHandActivatedByWheel}
       />
       <EditorCanvas 
         canvasRef={canvas}

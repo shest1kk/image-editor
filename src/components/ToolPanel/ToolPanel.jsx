@@ -1,7 +1,7 @@
 import React from 'react';
 import ButtonIcon from "@components/ButtonIcon/ButtonIcon";
 
-const ToolPanel = ({ selectedTool, setSelectedTool, setToolActive, setInfoActive, setIsContextModalOpen, isMouseWheelDown }) => {
+const ToolPanel = ({ selectedTool, setSelectedTool, setToolActive, setInfoActive, setIsContextModalOpen, isMouseWheelDown, setHandActivatedByWheel }) => {
   return (
     <div className="editor__tool-panel tool-panel">
       {["cursor", "pipette", "hand"].map((tool) => (
@@ -18,6 +18,10 @@ const ToolPanel = ({ selectedTool, setSelectedTool, setToolActive, setInfoActive
               // Закрываем модальное окно пипетки при выборе других инструментов
               setInfoActive(false);
               setIsContextModalOpen(false);
+            }
+            // Если пользователь вручную выбрал руку, сбрасываем флаг
+            if (tool === "hand") {
+              setHandActivatedByWheel(false);
             }
           }}
           active={selectedTool === tool || (isMouseWheelDown && tool === "hand")}

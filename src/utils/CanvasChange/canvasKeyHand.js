@@ -1,3 +1,43 @@
+// Функция для ограничения смещения изображения в пределах canvas
+export const constrainImagePosition = (newX, newY, canvasWidth, canvasHeight, scaledImageWidth, scaledImageHeight) => {
+    // Рассчитываем центральную позицию изображения (без смещения)
+    const centerX = (canvasWidth - scaledImageWidth) / 2;
+    const centerY = (canvasHeight - scaledImageHeight) / 2;
+    
+    // Рассчитываем позицию изображения с учетом смещения
+    const imageLeft = centerX + newX;
+    const imageTop = centerY + newY;
+    const imageRight = imageLeft + scaledImageWidth;
+    const imageBottom = imageTop + scaledImageHeight;
+    
+    // Минимальная видимая часть изображения (в пикселях)
+    const minVisibleEdge = 50;
+    
+    // Ограничения: минимальный край изображения всегда должен быть виден
+    let constrainedX = newX;
+    let constrainedY = newY;
+    
+    // Проверяем границы по X (горизонталь)
+    if (imageRight < minVisibleEdge) {
+        // Изображение ушло слишком далеко влево - оставляем минимальный видимый край
+        constrainedX = minVisibleEdge - centerX - scaledImageWidth;
+    } else if (imageLeft > canvasWidth - minVisibleEdge) {
+        // Изображение ушло слишком далеко вправо - оставляем минимальный видимый край
+        constrainedX = canvasWidth - minVisibleEdge - centerX;
+    }
+    
+    // Проверяем границы по Y (вертикаль)
+    if (imageBottom < minVisibleEdge) {
+        // Изображение ушло слишком далеко вверх - оставляем минимальный видимый край
+        constrainedY = minVisibleEdge - centerY - scaledImageHeight;
+    } else if (imageTop > canvasHeight - minVisibleEdge) {
+        // Изображение ушло слишком далеко вниз - оставляем минимальный видимый край
+        constrainedY = canvasHeight - minVisibleEdge - centerY;
+    }
+    
+    return { x: constrainedX, y: constrainedY };
+};
+
 export const updateTranslation = (animationFrameId, canvasTranslation, setCanvasTranslation, imagePosition, setImagePosition, dx, dy) => {
     if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
@@ -24,54 +64,48 @@ export const handleMouseUp = (setIsDragging) => {
     setIsDragging(false);
 };
 
-export const handleKeyDown = (step, toolActive, canvasTranslation, setCanvasTranslation, e) => {
+export const handleKeyDown = (step, toolActive, imagePosition, setImagePosition, canvasWidth, canvasHeight, scaledImageWidth, scaledImageHeight, e) => {
     if (toolActive === "hand") {
+        let dx = 0, dy = 0;
+        
         switch (e.key) {
             case "ArrowLeft":
-                setCanvasTranslation({
-                    x: canvasTranslation.x - step,
-                    y: canvasTranslation.y
-                });
+                dx = -step;
                 break;
             case "ArrowRight":
-                setCanvasTranslation({
-                    x: canvasTranslation.x + step,
-                    y: canvasTranslation.y
-                });
+                dx = step;
                 break;
             case "ArrowUp":
-                setCanvasTranslation({
-                    x: canvasTranslation.x,
-                    y: canvasTranslation.y - step
-                });
+                dy = -step;
                 break;
             case "ArrowDown":
-                setCanvasTranslation({
-                    x: canvasTranslation.x,
-                    y: canvasTranslation.y + step
-                });
+                dy = step;
                 break;
+            case " ": // Пробел для сброса позиции
+                setImagePosition({ x: 0, y: 0 });
+                return;
             default:
-                break;
+                return;
         }
+        
+        // Применяем ограничения к новой позиции
+        const newPosition = constrainImagePosition(
+            imagePosition.x + dx,
+            imagePosition.y + dy,
+            canvasWidth,
+            canvasHeight,
+            scaledImageWidth,
+            scaledImageHeight
+        );
+        
+        setImagePosition(newPosition);
     }
 };
 
-export const handleKeyUp = (toolActive, canvasTranslation, setCanvasTranslation, e) => {
+export const handleKeyUp = (toolActive, e) => {
     if (toolActive === "hand") {
-        switch (e.key) {
-            case "ArrowLeft":
-            case "ArrowRight":
-            case "ArrowUp":
-            case "ArrowDown":
-                // Остановить перемещение при отпускании к��авиши
-                setCanvasTranslation({
-                    x: canvasTranslation.x,
-                    y: canvasTranslation.y
-                });
-                break;
-            default:
-                break;
-        }
+        // Клавиатурное управление теперь работает по нажатию, а не удержанию
+        // Эта функция может быть использована для дополнительных действий в будущем
+        return;
     }
 };

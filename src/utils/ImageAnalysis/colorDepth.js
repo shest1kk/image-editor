@@ -195,3 +195,4 @@ export class ColorDepthAnalyzer {
 }
 
 export default ColorDepthAnalyzer;
+
