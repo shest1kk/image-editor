@@ -45,7 +45,6 @@ export class ColorDepthAnalyzer {
             return this.calculateColorDepth(data);
             
         } catch (error) {
-            console.warn('Ошибка анализа глубины цвета:', error);
             return {
                 bitsPerChannel: 8,
                 totalBits: 24,

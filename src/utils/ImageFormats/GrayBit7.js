@@ -60,7 +60,6 @@ export class GrayBit7Handler {
         const height = dataView.getUint16(8, false); // big-endian
         const reserved = dataView.getUint16(10, false);
 
-        console.log('GrayBit-7 декодирование:', { version, flags, hasMask, width, height, reserved });
 
         if (version !== this.VERSION) {
             throw new Error(`Неподдерживаемая версия GrayBit-7: ${version}`);

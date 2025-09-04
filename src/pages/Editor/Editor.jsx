@@ -211,7 +211,6 @@ const Editor = () => {
           setColorDepth(formatData.colorDepth || '24-bit RGB');
           setOriginalFormat(formatData);
         } catch (error) {
-          console.warn('Ошибка чтения метаданных формата:', error);
           setOriginalFormat(null);
           // Fallback к анализу
           try {
@@ -227,7 +226,6 @@ const Editor = () => {
           const colorDepthInfo = ColorDepthAnalyzer.analyzeColorDepth(img);
           setColorDepth(colorDepthInfo.description);
         } catch (error) {
-          console.warn('Ошибка анализа глубины цвета:', error);
           setColorDepth('24-bit RGB');
         }
         setOriginalFormat(null);
@@ -365,9 +363,11 @@ const Editor = () => {
     const canvasWidth = scaledWidth + padding * 2;
     const canvasHeight = scaledHeight + padding * 2;
     
-    // Рассчитываем базовую центральную позицию (без смещения)
-    const baseCenterX = (canvasWidth - containerElement.clientWidth) / 2;
-    const baseCenterY = (canvasHeight - containerElement.clientHeight) / 2;
+    // Рассчитываем базовую центральную позицию для отображения центра изображения в центре viewport
+    // Центр изображения на canvas: (canvasWidth / 2, canvasHeight / 2)
+    // Центр viewport: (containerElement.clientWidth / 2, containerElement.clientHeight / 2)
+    const baseCenterX = (canvasWidth / 2) - (containerElement.clientWidth / 2);
+    const baseCenterY = (canvasHeight / 2) - (containerElement.clientHeight / 2);
     
     // Применяем смещение изображения к позиции скролла
     const scrollX = baseCenterX - imagePosition.x;
@@ -461,11 +461,13 @@ const Editor = () => {
 
   // Центрируем изображение при изменении масштаба
   useEffect(() => {
+    // Сбрасываем позицию изображения к центру
     setImagePosition({ x: 0, y: 0 });
+    
     // Проверяем scrollbars при изменении масштаба
     const needsScrollbars = checkScrollbarsNeeded();
     
-    // Если нужны scrollbars, центрируем viewport (но не во время активного зума)
+    // Если нужны scrollbars, центрируем viewport к центру изображения (но не во время активного зума)
     if (needsScrollbars && scrollContainer.current && originalDimensions.width && !isZooming) {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -478,12 +480,14 @@ const Editor = () => {
             const canvasWidth = scaledWidth + padding * 2;
             const canvasHeight = scaledHeight + padding * 2;
             
-            // Центрируем к центру холста (canvas)
-            const scrollX = (canvasWidth - containerElement.clientWidth) / 2;
-            const scrollY = (canvasHeight - containerElement.clientHeight) / 2;
+            // Рассчитываем позицию скролла так, чтобы центр изображения был в центре viewport
+            // Центр изображения на canvas: (canvasWidth / 2, canvasHeight / 2)
+            // Центр viewport: (containerElement.clientWidth / 2, containerElement.clientHeight / 2)
+            const scrollX = (canvasWidth / 2) - (containerElement.clientWidth / 2);
+            const scrollY = (canvasHeight / 2) - (containerElement.clientHeight / 2);
             
-            containerElement.scrollLeft = Math.max(0, scrollX);
-            containerElement.scrollTop = Math.max(0, scrollY);
+            containerElement.scrollLeft = Math.max(0, Math.min(scrollX, canvasWidth - containerElement.clientWidth));
+            containerElement.scrollTop = Math.max(0, Math.min(scrollY, canvasHeight - containerElement.clientHeight));
           }
         });
       });

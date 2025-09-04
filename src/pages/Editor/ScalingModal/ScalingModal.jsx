@@ -5,6 +5,7 @@ import Dropdown from '@components/Dropdown/Dropdown';
 import TheButton from '@components/Button/TheButton';
 import { ImageContext } from '@/ImageProvider';
 import { bilinearInterpolation, bicubicInterpolation, nearestNeighborInterpolation } from '@utils/ImageProcessing/InterpolationMethods';
+import { runInterpolationTest } from '@utils/ImageProcessing/InterpolationTest';
 import { calculateFileSize } from "@utils/FileSize/fileSize";
 
 const ScalingModal = ({ image, closeModal }) => {
@@ -23,6 +24,29 @@ const ScalingModal = ({ image, closeModal }) => {
     const [initialFileSize, setInitialFileSize] = useState(0);
     const [resizedFileSize, setResizedFileSize] = useState(0);
     const [showTooltip, setShowTooltip] = useState(false);
+
+    // Таблица популярных разрешений
+    const resolutionPresets = {
+        // По ширине
+        4096: 2160,  // 4K DCI
+        3840: 2160,  // 4K UHD
+        1920: 1080,  // Full HD
+        1280: 720,   // HD
+        720: 480,    // SD
+        640: 480,    // VGA
+        1366: 768,   // HD+
+        1440: 900,   // WXGA+
+        1600: 900,   // HD+
+        2560: 1440,  // QHD
+        3440: 1440,  // UWQHD
+        // По высоте (обратные)
+        2160: 4096,  // 4K DCI (обратно)
+        1080: 1920,  // Full HD (обратно)  
+        480: 720,    // SD (обратно)
+        768: 1366,   // HD+ (обратно)
+        900: 1600,   // HD+ (обратно)
+        1440: 2560,  // QHD (обратно)
+    };
 
     const formatSize = (megapixels) => {
         return megapixels > 1 ? `${megapixels.toFixed(2)} MP` : `${(megapixels * 1000000).toFixed(0)} pixels`;
@@ -48,12 +72,14 @@ const ScalingModal = ({ image, closeModal }) => {
         img.src = image.src;
 
         img.onload = () => {
-            const megapixels = (img.width * img.height) / 1000000;
+            const megapixels = (img.naturalWidth * img.naturalHeight) / 1000000;
             setInitialMegapixels(megapixels);
             const formattedSize = formatSize(megapixels);
             setInitialSize(formattedSize);
             setResizedSize(formattedSize);
-            setAspectRatio(img.width / img.height);
+            const calculatedAspectRatio = img.naturalWidth / img.naturalHeight;
+            setAspectRatio(calculatedAspectRatio);
+            
 
             if (resizeMode === 'Проценты') {
                 setWidth('100');
@@ -111,9 +137,25 @@ const ScalingModal = ({ image, closeModal }) => {
         setWidth(value);
         let newHeightValue = height;
         if (lockAspectRatio) {
-            const newHeight = resizeMode === 'Проценты' ? value : Math.round(Number(value) / aspectRatio);
-            setHeight(newHeight.toString());
-            newHeightValue = newHeight.toString();
+            if (resizeMode === 'Проценты') {
+                // В режиме процентов оба значения должны быть одинаковыми
+                const newHeight = value;
+                setHeight(newHeight.toString());
+                newHeightValue = newHeight.toString();
+            } else {
+                // В режиме пикселей используем предустановленные разрешения
+                const widthNum = Number(value);
+                const presetHeight = resolutionPresets[widthNum];
+                if (presetHeight) {
+                    setHeight(presetHeight.toString());
+                    newHeightValue = presetHeight.toString();
+                } else {
+                    // Если нет предустановки, используем старую логику
+                    const newHeight = Math.round(widthNum / aspectRatio);
+                    setHeight(newHeight.toString());
+                    newHeightValue = newHeight.toString();
+                }
+            }
         }
         updateResizedSize(value, newHeightValue);
     };
@@ -123,9 +165,25 @@ const ScalingModal = ({ image, closeModal }) => {
         setHeight(value);
         let newWidthValue = width;
         if (lockAspectRatio) {
-            const newWidth = resizeMode === 'Проценты' ? value : Math.round(Number(value) * aspectRatio);
-            setWidth(newWidth.toString());
-            newWidthValue = newWidth.toString();
+            if (resizeMode === 'Проценты') {
+                // В режиме процентов оба значения должны быть одинаковыми
+                const newWidth = value;
+                setWidth(newWidth.toString());
+                newWidthValue = newWidth.toString();
+            } else {
+                // В режиме пикселей используем предустановленные разрешения
+                const heightNum = Number(value);
+                const presetWidth = resolutionPresets[heightNum];
+                if (presetWidth) {
+                    setWidth(presetWidth.toString());
+                    newWidthValue = presetWidth.toString();
+                } else {
+                    // Если нет предустановки, используем старую логику
+                    const newWidth = Math.round(heightNum * aspectRatio);
+                    setWidth(newWidth.toString());
+                    newWidthValue = newWidth.toString();
+                }
+            }
         }
         updateResizedSize(newWidthValue, value);
     };
@@ -166,9 +224,21 @@ const ScalingModal = ({ image, closeModal }) => {
         localStorage.setItem('lockAspectRatio', JSON.stringify(lockAspectRatio));
         localStorage.setItem('interpolationAlgorithm', interpolationAlgorithm);
 
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
+        // Создаем временный canvas для получения оригинальных данных изображения
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d');
         
+        // Устанавливаем размеры временного canvas под оригинальное изображение
+        tempCanvas.width = image.naturalWidth;
+        tempCanvas.height = image.naturalHeight;
+        
+        // Рисуем оригинальное изображение без масштабирования
+        tempCtx.drawImage(image, 0, 0);
+        
+        // Получаем данные оригинального изображения
+        const originalImageData = tempCtx.getImageData(0, 0, image.naturalWidth, image.naturalHeight);
+        
+        // Вычисляем новые размеры
         const newWidth = resizeMode === 'Проценты' 
             ? Math.round((image.naturalWidth * Number(width)) / 100) 
             : Number(width);
@@ -176,28 +246,35 @@ const ScalingModal = ({ image, closeModal }) => {
             ? Math.round((image.naturalHeight * Number(height)) / 100) 
             : Number(height);
         
-        canvas.width = newWidth;
-        canvas.height = newHeight;
-        
-        ctx.drawImage(image, 0, 0, newWidth, newHeight);
-        
-        const imageData = ctx.getImageData(0, 0, newWidth, newHeight);
-        
+        // Применяем интерполяцию к оригинальным данным
         let resizedImageData;
         switch (interpolationAlgorithm) {
             case 'Ближайший сосед':
-                resizedImageData = nearestNeighborInterpolation(imageData, newWidth, newHeight);
+                resizedImageData = nearestNeighborInterpolation(originalImageData, newWidth, newHeight);
                 break;
             case 'Билинейный':
-                resizedImageData = bilinearInterpolation(imageData, newWidth, newHeight);
+                resizedImageData = bilinearInterpolation(originalImageData, newWidth, newHeight);
                 break;
             case 'Бикубический':
-                resizedImageData = bicubicInterpolation(imageData, newWidth, newHeight);
+                resizedImageData = bicubicInterpolation(originalImageData, newWidth, newHeight);
                 break;
             default:
-                resizedImageData = imageData;
+                // Если не выбран метод интерполяции, используем встроенное масштабирование браузера
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = newWidth;
+                canvas.height = newHeight;
+                ctx.drawImage(image, 0, 0, newWidth, newHeight);
+                resizedImageData = ctx.getImageData(0, 0, newWidth, newHeight);
         }
         
+        // Создаем финальный canvas для результата
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = newWidth;
+        canvas.height = newHeight;
+        
+        // Помещаем интерполированные данные на canvas
         ctx.putImageData(resizedImageData, 0, 0);
         
         canvas.toBlob(async (blob) => {
@@ -213,14 +290,13 @@ const ScalingModal = ({ image, closeModal }) => {
         if (selectedOption === 'Проценты') {
             newWidth = '100';
             newHeight = '100';
-            setWidth(newWidth);
-            setHeight(newHeight);
         } else {
-            newWidth = image.width.toString();
-            newHeight = image.height.toString();
-            setWidth(newWidth);
-            setHeight(newHeight);
+            // Используем оригинальные размеры изображения
+            newWidth = image.naturalWidth.toString();
+            newHeight = image.naturalHeight.toString();
         }
+        setWidth(newWidth);
+        setHeight(newHeight);
         // Обновляем расчет размера с учетом нового режима
         setTimeout(() => updateResizedSize(newWidth, newHeight), 0);
     };
@@ -294,14 +370,29 @@ const ScalingModal = ({ image, closeModal }) => {
                 {widthError && <p className="form__error">{widthError}</p>}
                 {heightError && <p className="form__error">{heightError}</p>}
             </div>
-            <TheButton 
-                className="form__button" 
-                accent={true} 
-                onClick={handleResizeConfirm}
-                disabled={widthError || heightError}
-            >
-                Выполнить
-            </TheButton>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <TheButton 
+                    className="form__button" 
+                    accent={true} 
+                    onClick={handleResizeConfirm}
+                    disabled={widthError || heightError}
+                >
+                    Выполнить
+                </TheButton>
+                
+                <TheButton 
+                    type="button"
+                    onClick={() => runInterpolationTest(50, 200, false)}
+                    style={{ 
+                        background: '#4CAF50', 
+                        fontSize: '12px',
+                        padding: '5px 10px'
+                    }}
+                    title="Запустить визуальный тест методов интерполяции"
+                >
+                    🧪 Тест
+                </TheButton>
+            </div>
         </form>
     );
 };
