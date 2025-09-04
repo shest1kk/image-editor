@@ -64,8 +64,24 @@
   cursor: move;
 }
 
+.workspace__scroll-container {
+  width: 100%;
+  height: 100%;
+  overflow: hidden; /* По умолчанию скрываем scrollbars */
+}
+
+.workspace__scroll-container--scrollable {
+  overflow: auto; /* Показываем scrollbars когда нужно */
+}
+
 .workspace__canvas {
   display: block;
+}
+
+/* Когда включены scrollbars, canvas может быть больше контейнера */
+.workspace__scroll-container--scrollable .workspace__canvas {
+  min-width: 100%;
+  min-height: 100%;
 }
 
 .workspace__image {

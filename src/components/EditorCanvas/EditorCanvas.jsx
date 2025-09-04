@@ -10,27 +10,36 @@ const EditorCanvas = ({
   handleMouseUpEvent, 
   handleKeyDownEvent, 
   handleKeyUpEvent, 
-  isModalOpen 
+  isModalOpen,
+  scrollRef,
+  showScrollbars,
+  onScroll
 }) => {
   return (
     <div className={`editor__workspace workspace${toolActive === "hand" || isMouseWheelDown ? " workspace--hand" : ""}`}>
-      <canvas
-        className={`workspace__canvas${toolActive === "pipette" ? " workspace__canvas--pipette" : ""}`}
-        ref={canvasRef}
-        onClick={(e) => {
-          if (toolActive === "pipette") {
-            handleCanvasClick(e);
-            e.preventDefault();
-            e.stopPropagation();
-          }
-        }}
-        onMouseMove={handleMouseMove}
-        onMouseDown={handleMouseDownEvent}
-        onMouseUp={handleMouseUpEvent}
-        onKeyDown={!isModalOpen ? handleKeyDownEvent : null}
-        onKeyUp={!isModalOpen ? handleKeyUpEvent : null}
-        style={{ cursor: toolActive === "hand" || isMouseWheelDown ? "grab" : toolActive === "pipette" ? "crosshair" : "default" }}
-      />
+      <div 
+        className={`workspace__scroll-container${showScrollbars ? " workspace__scroll-container--scrollable" : ""}`}
+        ref={scrollRef}
+        onScroll={onScroll}
+      >
+        <canvas
+          className={`workspace__canvas${toolActive === "pipette" ? " workspace__canvas--pipette" : ""}`}
+          ref={canvasRef}
+          onClick={(e) => {
+            if (toolActive === "pipette") {
+              handleCanvasClick(e);
+              e.preventDefault();
+              e.stopPropagation();
+            }
+          }}
+          onMouseMove={handleMouseMove}
+          onMouseDown={handleMouseDownEvent}
+          onMouseUp={handleMouseUpEvent}
+          onKeyDown={!isModalOpen ? handleKeyDownEvent : null}
+          onKeyUp={!isModalOpen ? handleKeyUpEvent : null}
+          style={{ cursor: toolActive === "hand" || isMouseWheelDown ? "grab" : toolActive === "pipette" ? "crosshair" : "default" }}
+        />
+      </div>
     </div>
   );
 };

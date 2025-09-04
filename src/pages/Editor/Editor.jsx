@@ -70,6 +70,8 @@ const Editor = () => {
   const animationFrameId = useRef(null);
   const isDraggingRef = useRef(false);
   const isMouseWheelDownRef = useRef(false);
+  const scrollContainer = useRef(null);
+  const zoomTimeoutRef = useRef(null);
 
   const [isMouseDown, setIsMouseDown] = useState(false); // Track mouse button state
   const [selectedTool, setSelectedTool] = useState("cursor"); // New state to track selected tool
@@ -93,6 +95,8 @@ const Editor = () => {
   const [handActivatedByWheel, setHandActivatedByWheel] = useState(false); // Флаг: рука активирована колесом мыши
 
   const [imagePosition, setImagePosition] = useState({ x: 0, y: 0 });
+  const [showScrollbars, setShowScrollbars] = useState(false);
+  const [isZooming, setIsZooming] = useState(false);
   
   // Коэффициенты чувствительности перемещения
   const handToolSensitivity = 0.5; // Для инструмента "Рука"
@@ -275,6 +279,14 @@ const Editor = () => {
           return;
         }
         
+        // Отмечаем что начинается зум
+        setIsZooming(true);
+        
+        // Очищаем предыдущий таймаут
+        if (zoomTimeoutRef.current) {
+          clearTimeout(zoomTimeoutRef.current);
+        }
+        
         const delta = event.deltaY;
         const scaleStep = 10; // Шаг изменения масштаба в процентах
         
@@ -291,6 +303,11 @@ const Editor = () => {
           // Ограничиваем масштаб в диапазоне 12% - 300%
           return Math.max(12, Math.min(300, newScale));
         });
+        
+        // Устанавливаем таймаут для завершения зума
+        zoomTimeoutRef.current = setTimeout(() => {
+          setIsZooming(false);
+        }, 150); // 150ms после последнего события колеса
       };
 
       // Обработчик события касания для масштабирования на мобильных устройствах
@@ -318,6 +335,49 @@ const Editor = () => {
     };
   }, [image]); // Убираем isDragging и isMouseWheelDown из зависимостей - они будут браться из замыкания
 
+  // Функция для проверки нужны ли scrollbars
+  const checkScrollbarsNeeded = useCallback(() => {
+    if (!scrollContainer.current || !originalDimensions.width || !originalDimensions.height) {
+      setShowScrollbars(false);
+      return;
+    }
+    
+    const containerElement = scrollContainer.current;
+    const scaledWidth = originalDimensions.width * (scaleFactor / 100);
+    const scaledHeight = originalDimensions.height * (scaleFactor / 100);
+    
+    // Показываем scrollbars если изображение больше контейнера
+    const needsScrollbars = scaledWidth > containerElement.clientWidth || scaledHeight > containerElement.clientHeight;
+    setShowScrollbars(needsScrollbars);
+    
+    return needsScrollbars;
+  }, [originalDimensions, scaleFactor]);
+
+  // Функция для синхронизации scrollbars с позицией изображения
+  const syncScrollbarsWithImagePosition = useCallback(() => {
+    if (!showScrollbars || !scrollContainer.current || !originalDimensions.width) return;
+    
+    const containerElement = scrollContainer.current;
+    const scaledWidth = originalDimensions.width * (scaleFactor / 100);
+    const scaledHeight = originalDimensions.height * (scaleFactor / 100);
+    const padding = 100;
+    
+    const canvasWidth = scaledWidth + padding * 2;
+    const canvasHeight = scaledHeight + padding * 2;
+    
+    // Рассчитываем базовую центральную позицию (без смещения)
+    const baseCenterX = (canvasWidth - containerElement.clientWidth) / 2;
+    const baseCenterY = (canvasHeight - containerElement.clientHeight) / 2;
+    
+    // Применяем смещение изображения к позиции скролла
+    const scrollX = baseCenterX - imagePosition.x;
+    const scrollY = baseCenterY - imagePosition.y;
+    
+    // Устанавливаем позицию скролла
+    containerElement.scrollLeft = Math.max(0, Math.min(scrollX, canvasWidth - containerElement.clientWidth));
+    containerElement.scrollTop = Math.max(0, Math.min(scrollY, canvasHeight - containerElement.clientHeight));
+  }, [showScrollbars, originalDimensions, scaleFactor, imagePosition]);
+
   // Основная функция перерисовки canvas
   const drawImageOnCanvas = useCallback(() => {
     if (!context.current || !canvas.current || !image) return;
@@ -327,29 +387,68 @@ const Editor = () => {
     img.src = image;
     
     img.onload = () => {
-      // Очищаем canvas
-      context.current.clearRect(0, 0, canvasElement.width, canvasElement.height);
-      
       // Рассчитываем размеры с текущим масштабом
       const scaledWidth = img.width * (scaleFactor / 100);
       const scaledHeight = img.height * (scaleFactor / 100);
       
-      // Рассчитываем позицию для центрирования + смещение от перетаскивания
-      const centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x;
-      const centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y;
+      // Проверяем нужны ли scrollbars и получаем результат
+      const needsScrollbars = checkScrollbarsNeeded();
+      
+      if (needsScrollbars) {
+        // Если нужны scrollbars, увеличиваем canvas до размера изображения + отступы
+        const padding = 100; // Отступы вокруг изображения
+        canvasElement.width = scaledWidth + padding * 2;
+        canvasElement.height = scaledHeight + padding * 2;
+        
+        // Центрируем изображение относительно canvas (с учетом padding)
+        const centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x;
+        const centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y;
+        
+        // Очищаем canvas
+        context.current.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        
+        // Рисуем фон для прозрачности если нужно
+        if (originalFormat && originalFormat.metadata && originalFormat.metadata.hasMask) {
+          drawTransparencyBackground(context.current, centerX, centerY, scaledWidth, scaledHeight);
+        }
+        
+        // Рисуем изображение
+        context.current.drawImage(img, centerX, centerY, scaledWidth, scaledHeight);
+        
+        // Автоматически синхронизируем scrollbars при центрированной позиции (но не во время зума)
+        if (scrollContainer.current && imagePosition.x === 0 && imagePosition.y === 0 && !isZooming) {
+          setTimeout(() => {
+            syncScrollbarsWithImagePosition();
+          }, 0);
+        }
+      } else {
+        // Обычная отрисовка для случая когда изображение помещается
+        // Восстанавливаем размеры canvas под контейнер
+        if (scrollContainer.current) {
+          canvasElement.width = scrollContainer.current.clientWidth;
+          canvasElement.height = scrollContainer.current.clientHeight;
+        }
+        
+        // Очищаем canvas
+        context.current.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        
+        // Рассчитываем позицию для центрирования + смещение от перетаскивания
+        const centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x;
+        const centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y;
 
-      // Рисуем фон для прозрачности если нужно
-      if (originalFormat && originalFormat.metadata && originalFormat.metadata.hasMask) {
-        drawTransparencyBackground(context.current, centerX, centerY, scaledWidth, scaledHeight);
+        // Рисуем фон для прозрачности если нужно
+        if (originalFormat && originalFormat.metadata && originalFormat.metadata.hasMask) {
+          drawTransparencyBackground(context.current, centerX, centerY, scaledWidth, scaledHeight);
+        }
+
+        // Рисуем изображение
+        context.current.drawImage(img, centerX, centerY, scaledWidth, scaledHeight);
       }
-
-      // Рисуем изображение
-      context.current.drawImage(img, centerX, centerY, scaledWidth, scaledHeight);
       
       // Обновляем dimensions для других компонентов (синхронизируем с redrawCanvas)
       setDimensions({ width: scaledWidth, height: scaledHeight });
     };
-  }, [image, scaleFactor, imagePosition, originalFormat]);
+  }, [image, scaleFactor, imagePosition, originalFormat, checkScrollbarsNeeded, syncScrollbarsWithImagePosition, isZooming]);
 
   // Синхронизируем ref'ы с состояниями для использования в handleWheel
   useEffect(() => {
@@ -363,7 +462,55 @@ const Editor = () => {
   // Центрируем изображение при изменении масштаба
   useEffect(() => {
     setImagePosition({ x: 0, y: 0 });
-  }, [scaleFactor]);
+    // Проверяем scrollbars при изменении масштаба
+    const needsScrollbars = checkScrollbarsNeeded();
+    
+    // Если нужны scrollbars, центрируем viewport (но не во время активного зума)
+    if (needsScrollbars && scrollContainer.current && originalDimensions.width && !isZooming) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const containerElement = scrollContainer.current;
+          if (containerElement) {
+            const scaledWidth = originalDimensions.width * (scaleFactor / 100);
+            const scaledHeight = originalDimensions.height * (scaleFactor / 100);
+            const padding = 100;
+            
+            const canvasWidth = scaledWidth + padding * 2;
+            const canvasHeight = scaledHeight + padding * 2;
+            
+            // Центрируем к центру холста (canvas)
+            const scrollX = (canvasWidth - containerElement.clientWidth) / 2;
+            const scrollY = (canvasHeight - containerElement.clientHeight) / 2;
+            
+            containerElement.scrollLeft = Math.max(0, scrollX);
+            containerElement.scrollTop = Math.max(0, scrollY);
+          }
+        });
+      });
+    }
+  }, [scaleFactor, checkScrollbarsNeeded, originalDimensions, isZooming]);
+
+  // Синхронизируем scrollbars после окончания зума
+  useEffect(() => {
+    if (!isZooming) {
+      syncScrollbarsWithImagePosition();
+    }
+  }, [isZooming, syncScrollbarsWithImagePosition]);
+
+  // Обработчик скролла
+  const handleScroll = useCallback((e) => {
+    if (!showScrollbars) return;
+    
+    // Пока оставляем базовую функциональность
+    // В будущем здесь можно добавить обратную синхронизацию: скролл -> позиция изображения
+  }, [showScrollbars]);
+
+  // Синхронизируем scrollbars при изменении позиции изображения
+  useEffect(() => {
+    if (!isZooming) { // Не синхронизируем во время зума
+      syncScrollbarsWithImagePosition();
+    }
+  }, [imagePosition, syncScrollbarsWithImagePosition, isZooming]);
 
   // Перерисовываем при изменении масштаба или позиции
   useEffect(() => {
@@ -421,19 +568,20 @@ const Editor = () => {
         const newX = prevPosition.x + dx;
         const newY = prevPosition.y + dy;
         
-        // Получаем размеры canvas и изображения
+        // Получаем размеры контейнера и изображения
         const canvasElement = canvas.current;
-        if (!canvasElement) return prevPosition;
+        const containerElement = scrollContainer.current;
+        if (!canvasElement || !containerElement) return prevPosition;
         
         const scaledImageWidth = originalDimensions.width * (scaleFactor / 100);
         const scaledImageHeight = originalDimensions.height * (scaleFactor / 100);
         
-        // Применяем ограничения
+        // Применяем ограничения относительно размеров контейнера (viewport)
         return constrainImagePosition(
           newX, 
           newY, 
-          canvasElement.width, 
-          canvasElement.height, 
+          containerElement.clientWidth, 
+          containerElement.clientHeight, 
           scaledImageWidth, 
           scaledImageHeight
         );
@@ -446,8 +594,8 @@ const Editor = () => {
   }, [isDragging, toolActive, isMouseWheelDown, cursor.x, cursor.y, dimensions, scaleFactor, handToolSensitivity, wheelDragSensitivity]);
 
   const handleKeyDownEvent = (e) => {
-    if (!canvas.current) return;
-    const canvasElement = canvas.current;
+    if (!canvas.current || !scrollContainer.current) return;
+    const containerElement = scrollContainer.current;
     const scaledImageWidth = originalDimensions.width * (scaleFactor / 100);
     const scaledImageHeight = originalDimensions.height * (scaleFactor / 100);
     
@@ -456,8 +604,8 @@ const Editor = () => {
       toolActive, 
       imagePosition, 
       setImagePosition, 
-      canvasElement.width, 
-      canvasElement.height, 
+      containerElement.clientWidth, 
+      containerElement.clientHeight, 
       scaledImageWidth, 
       scaledImageHeight, 
       e
@@ -794,8 +942,8 @@ const Editor = () => {
 
   useEffect(() => {
     const handleKeyDownEventBody = (e) => {
-      if (!canvas.current) return;
-      const canvasElement = canvas.current;
+      if (!canvas.current || !scrollContainer.current) return;
+      const containerElement = scrollContainer.current;
       const scaledImageWidth = originalDimensions.width * (scaleFactor / 100);
       const scaledImageHeight = originalDimensions.height * (scaleFactor / 100);
       
@@ -804,8 +952,8 @@ const Editor = () => {
         toolActive, 
         imagePosition, 
         setImagePosition, 
-        canvasElement.width, 
-        canvasElement.height, 
+        containerElement.clientWidth, 
+        containerElement.clientHeight, 
         scaledImageWidth, 
         scaledImageHeight, 
         e
@@ -860,6 +1008,9 @@ const Editor = () => {
         handleKeyDownEvent={handleKeyDownEvent}
         handleKeyUpEvent={handleKeyUpEvent}
         isModalOpen={isModalOpen}
+        scrollRef={scrollContainer}
+        showScrollbars={showScrollbars}
+        onScroll={handleScroll}
       />
       <StatusBar 
         image={image}
