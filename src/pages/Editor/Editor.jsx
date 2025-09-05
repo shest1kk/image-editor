@@ -24,15 +24,16 @@ import {
   handleKeyUp,
   handleMouseUp,
   constrainImagePosition,
+  constrainLayerPosition,
 } from "@utils/CanvasChange/canvasKeyHand";
 
 
 import { calculateFileSize } from "@utils/FileSize/fileSize";
 import useLayers from "@hooks/useLayers";
-import { 
-  extractRGB, 
-  rgbToXyz, 
-  rgbToLab, 
+import {
+  extractRGB,
+  rgbToXyz,
+  rgbToLab,
   rgbToOKLch, 
   calculateContrast,
   formatColorForDisplay
@@ -104,6 +105,8 @@ const Editor = () => {
 
   // Обертка для updateLayers с переименованием
   const updateLayersWithRenumbering = useCallback((newLayers) => {
+    console.log('📝 updateLayersWithRenumbering: вызван');
+    
     // Проверяем, нужно ли переименовывать слои
     const needsRenaming = newLayers.some((layer, index) => {
       const expectedName = `Слой ${index + 1}`;
@@ -116,16 +119,23 @@ const Editor = () => {
     } else {
       updateLayers(newLayers);
     }
+    
+    // ТОЛЬКО для реальных изменений структуры слоев требуют перерисовки  
+    setNeedsRedraw(true);
   }, [updateLayers, renumberLayers]);
 
   // Обертка для updateLayers без переименования (для перетаскивания и других операций)
   const updateLayersWithoutRenumbering = useCallback((newLayers) => {
     updateLayers(newLayers);
+    // Изменения порядка слоев требуют перерисовки
+    setNeedsRedraw(true);
   }, [updateLayers]);
 
   // Обертка для операций, которые не должны переименовывать слои
   const updateLayersForProperties = useCallback((newLayers) => {
     updateLayers(newLayers);
+    // Изменения свойств слоев (видимость, прозрачность, etc) требуют перерисовки
+    setNeedsRedraw(true);
   }, [updateLayers]);
 
   // Обертка для addLayer с переименованием
@@ -144,6 +154,8 @@ const Editor = () => {
       const allLayers = [layerWithCorrectName, ...layers];
       const renumberedLayers = renumberLayers(allLayers);
       updateLayers(renumberedLayers);
+      // Новый слой требует перерисовки
+      setNeedsRedraw(true);
     }, 10);
   }, [addLayer, layers, renumberLayers, updateLayers]);
 
@@ -155,6 +167,8 @@ const Editor = () => {
   const isMouseWheelDownRef = useRef(false);
   const scrollContainer = useRef(null);
   const zoomTimeoutRef = useRef(null);
+  const renderTimeoutRef = useRef(null); // Для дебаунсинга рендеринга
+  const positionTimeoutRef = useRef(null); // Для дебаунсинга позиции
 
   const [isMouseDown, setIsMouseDown] = useState(false); // Track mouse button state
   const [selectedTool, setSelectedTool] = useState("cursor"); // New state to track selected tool
@@ -180,6 +194,7 @@ const Editor = () => {
   const [imagePosition, setImagePosition] = useState({ x: 0, y: 0 });
   const [showScrollbars, setShowScrollbars] = useState(false);
   const [isZooming, setIsZooming] = useState(false);
+  const [needsRedraw, setNeedsRedraw] = useState(true); // Флаг необходимости перерисовки
   
   // Коэффициенты чувствительности перемещения
   const handToolSensitivity = 0.5; // Для инструмента "Рука"
@@ -242,6 +257,8 @@ const Editor = () => {
     // Поддерживаем и event объекты и прямые значения
     const value = typeof newScaleFactor === 'object' ? newScaleFactor.target.value : newScaleFactor;
     setScaleFactor(Number(value));
+    
+    // CSS трансформации обновятся автоматически через useEffect
   };
 
   // Эффект для обработки загрузки изображения и настройки холста
@@ -269,10 +286,13 @@ const Editor = () => {
       const newScaleFactor = Math.max(12, Math.min(300, calculatedScale));
       
       // Устанавливаем оптимальный масштаб для помещения изображения
-      setScaleFactor(newScaleFactor);
+        setScaleFactor(newScaleFactor);
 
       // Сбрасываем позицию изображения при загрузке нового
       setImagePosition({ x: 0, y: 0 });
+      
+      // При загрузке нового изображения нужна перерисовка
+      setNeedsRedraw(true);
 
       // Устанавливаем исходные размеры изображения
       setOriginalDimensions({ width: img.width, height: img.height });
@@ -394,6 +414,21 @@ const Editor = () => {
       };
     };
   }, [image]); // Убираем isDragging и isMouseWheelDown из зависимостей - они будут браться из замыкания
+
+  // Очистка таймаутов при размонтировании
+  useEffect(() => {
+    return () => {
+      if (renderTimeoutRef.current) {
+        clearTimeout(renderTimeoutRef.current);
+      }
+      if (positionTimeoutRef.current) {
+        clearTimeout(positionTimeoutRef.current);
+      }
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+      }
+    };
+  }, []);
 
   // Функция для проверки нужны ли scrollbars
   const checkScrollbarsNeeded = useCallback(() => {
@@ -615,7 +650,13 @@ const Editor = () => {
 
   // Основная функция перерисовки canvas через систему слоев
   const drawImageOnCanvas = useCallback(async () => {
-    if (!context.current || !canvas.current || layers.length === 0) return;
+    const start = performance.now();
+    console.log('🎨 drawImageOnCanvas: НАЧАТ');
+    
+    if (!context.current || !canvas.current || layers.length === 0) {
+      console.log('❌ drawImageOnCanvas: нет контекста, canvas или слоев');
+      return;
+    }
     
     const canvasElement = canvas.current;
     
@@ -706,9 +747,52 @@ const Editor = () => {
         // canvasElement.dataset.lastScale = currentScale.toString();
         // canvasElement.dataset.lastPosition = JSON.stringify(currentPosition);
         
+        const end = performance.now();
+        console.log(`🎨 drawImageOnCanvas: ЗАВЕРШЕН за ${(end - start).toFixed(2)}ms`);
+        
         resolve();
     }
   }, [layers, scaleFactor, imagePosition, checkScrollbarsNeeded, syncScrollbarsWithImagePosition, isZooming, renderLayersOnCanvas]);
+
+  // Мемоизированная строка трансформации для оптимизации
+  const transformString = useMemo(() => {
+    const result = `translate(${imagePosition.x}px, ${imagePosition.y}px) scale(${scaleFactor / 100})`;
+    console.log('🔄 useMemo: transformString пересчитан', result);
+    return result;
+  }, [imagePosition.x, imagePosition.y, scaleFactor]);
+
+  // Функция для быстрого обновления CSS трансформаций
+  const updateCanvasTransform = useCallback(() => {
+    const start = performance.now();
+    const canvasElement = canvas.current;
+    if (!canvasElement) {
+      console.log('❌ updateCanvasTransform: canvas не найден');
+      return;
+    }
+    
+    // Применяем CSS трансформации МГНОВЕННО
+    canvasElement.style.transform = transformString;
+    canvasElement.style.transformOrigin = 'center center';
+    
+    const end = performance.now();
+    console.log(`⚡ updateCanvasTransform: применен за ${(end - start).toFixed(2)}ms`, transformString);
+  }, [transformString]);
+
+  // Функция для плавной перерисовки с requestAnimationFrame (только когда реально нужно)
+  const debouncedRender = useCallback(() => {
+    // Отменяем предыдущий таймаут
+    if (renderTimeoutRef.current) {
+      clearTimeout(renderTimeoutRef.current);
+    }
+    
+    // Отменяем предыдущий animationFrame
+    if (animationFrameId.current) {
+      cancelAnimationFrame(animationFrameId.current);
+    }
+    
+    // Помечаем что нужна перерисовка
+    setNeedsRedraw(true);
+  }, []);
 
   // Переопределяем window.redrawCanvas для совместимости
   useEffect(() => {
@@ -811,10 +895,21 @@ const Editor = () => {
     }
   }, [imagePosition, syncScrollbarsWithImagePosition, isZooming]);
 
-  // Перерисовываем при изменении масштаба или позиции
+  // Мгновенно обновляем CSS трансформации при изменении позиции/масштаба
   useEffect(() => {
-    drawImageOnCanvas();
-  }, [drawImageOnCanvas]);
+    console.log('🎯 useEffect: запуск updateCanvasTransform');
+    updateCanvasTransform();
+  }, [updateCanvasTransform]);
+
+  // Перерисовываем canvas только когда действительно нужно
+  useEffect(() => {
+    if (needsRedraw && !isDragging) {
+      console.log('🎨 useEffect: запуск drawImageOnCanvas (needsRedraw=true, isDragging=false)');
+      drawImageOnCanvas();
+    } else {
+      console.log(`🚫 useEffect: пропуск drawImageOnCanvas (needsRedraw=${needsRedraw}, isDragging=${isDragging})`);
+    }
+  }, [drawImageOnCanvas, needsRedraw, isDragging]);
 
   const [currentColor, setCurrentColor] = useState("");
 
@@ -851,6 +946,7 @@ const Editor = () => {
 
     // Handle dragging for hand tool
     if (isDragging && (toolActive === "hand" || isMouseWheelDown)) {
+      console.log(`🖐️ handleMouseMove: начинаем перетаскивание (toolActive=${toolActive}, isMouseWheelDown=${isMouseWheelDown})`);
       // Выбираем коэффициент в зависимости от способа перетаскивания
       let sensitivity = isMouseWheelDown ? wheelDragSensitivity : handToolSensitivity;
       
@@ -862,37 +958,39 @@ const Editor = () => {
       const dx = (x - cursor.x) * sensitivity;
       const dy = (y - cursor.y) * sensitivity;
 
-      // Перемещаем только активный слой, а не всю композицию
-      if (activeLayerId) {
-        updateLayers(prevLayers => 
-          prevLayers.map(layer => 
-            layer.id === activeLayerId 
-              ? {
-                  ...layer,
-                  position: {
-                    x: (layer.position?.x || 0) + dx,
-                    y: (layer.position?.y || 0) + dy
-                  }
-                }
-              : layer
-          )
-        );
-      } else {
-        // Если нет активного слоя, перемещаем всю композицию (старое поведение)
+      // ВРЕМЕННО: перемещаем всю композицию вместо индивидуальных слоев для производительности
+      // if (activeLayerId) {
+      //   // Логика индивидуального перемещения слоев отключена для отладки
+      //   console.log(`🎭 ОТКЛЮЧЕНО: перемещение активного слоя ${activeLayerId}`);
+      // } else {
+      
+      // Всегда перемещаем всю композицию (быстро через CSS трансформации)
+      // Дебаунсинг для предотвращения множественных вызовов
+      if (positionTimeoutRef.current) {
+        clearTimeout(positionTimeoutRef.current);
+      }
+      
+      positionTimeoutRef.current = setTimeout(() => {
         setImagePosition(prevPosition => {
+          const start = performance.now();
+          console.log(`🖱️ setImagePosition: start (dx=${dx}, dy=${dy})`);
+          
           const newX = prevPosition.x + dx;
           const newY = prevPosition.y + dy;
           
           // Получаем размеры контейнера и изображения
           const canvasElement = canvas.current;
           const containerElement = scrollContainer.current;
-          if (!canvasElement || !containerElement) return prevPosition;
+          if (!canvasElement || !containerElement) {
+            console.log('❌ setImagePosition: нет canvas или container');
+            return prevPosition;
+          }
           
           const scaledImageWidth = originalDimensions.width * (scaleFactor / 100);
           const scaledImageHeight = originalDimensions.height * (scaleFactor / 100);
           
           // Применяем ограничения относительно размеров контейнера (viewport)
-          return constrainImagePosition(
+          const constrainedPosition = constrainImagePosition(
             newX, 
             newY, 
             containerElement.clientWidth, 
@@ -900,8 +998,14 @@ const Editor = () => {
             scaledImageWidth, 
             scaledImageHeight
           );
+          
+          const end = performance.now();
+          console.log(`🖱️ setImagePosition: завершен за ${(end - start).toFixed(2)}ms`, constrainedPosition);
+          
+          // CSS трансформации обновятся автоматически через useEffect
+          return constrainedPosition;
         });
-      }
+      }, 0); // Без задержки, только для предотвращения дублирования
     }
 
     // Обновляем курсор в конце
@@ -929,19 +1033,24 @@ const Editor = () => {
   };
   const handleKeyUpEvent = (e) => handleKeyUp(toolActive, e);
   const handleMouseUpEvent = (e) => {
+    console.log(`🖱️ handleMouseUpEvent: button=${e.button}, isDragging=${isDragging}`);
+    
     if (e.button === 1) { // Middle mouse button
       handleMouseWheelUp(e);
     } else {
       handleMouseUp(setIsDragging);
       setIsMouseDown(false);
+      console.log(`🖱️ handleMouseUpEvent: сброс isDragging`);
     }
   };
   const handleMouseDownEvent = (e) => {
+    console.log(`🖱️ handleMouseDownEvent: button=${e.button}, toolActive=${toolActive}`);
     setIsMouseDown(true);
     
     if (e.button === 1) { // Middle mouse button
       handleMouseWheelDown(e);
     } else if (toolActive === "hand") {
+      console.log(`🖱️ handleMouseDownEvent: устанавливаем isDragging=true`);
       setIsDragging(true);
     }
   };
@@ -965,7 +1074,7 @@ const Editor = () => {
       
       // Восстанавливаем предыдущий инструмент только если рука была активирована колесом
       if (handActivatedByWheel) {
-        setToolActive(previousTool);
+      setToolActive(previousTool);
         setSelectedTool(previousTool);
         setHandActivatedByWheel(false); // Сбрасываем флаг
       }
@@ -1112,12 +1221,12 @@ const Editor = () => {
         const exportFilename = getExportFilename('gb7');
         const url = GrayBit7Handler.createDownloadURL(buffer, exportFilename);
         
-        const a = document.createElement("a");
-        document.body.appendChild(a);
-        a.href = url;
+      const a = document.createElement("a");
+      document.body.appendChild(a);
+      a.href = url;
         a.download = exportFilename;
-        a.click();
-        document.body.removeChild(a);
+      a.click();
+      document.body.removeChild(a);
         
         // Очищаем URL через некоторое время
         setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -1185,7 +1294,7 @@ const Editor = () => {
         const imageCoordX = Math.floor((canvasX - imageX) / (scaleFactor / 100));
         const imageCoordY = Math.floor((canvasY - imageY) / (scaleFactor / 100));
 
-        const coordinates = {
+      const coordinates = {
           x: imageCoordX,
           y: imageCoordY,
         };
@@ -1348,7 +1457,7 @@ const Editor = () => {
                       <p className="status-bar__text" title="CIE XYZ - трехстимульное цветовое пространство, основанное на восприятии человеческого глаза">XYZ: {rgbToXyz(extractRGB(pipetteColor1))}</p>
                       <p className="status-bar__text" title="CIE Lab - перцептуально равномерное цветовое пространство. L: яркость (0-100), a: зелёный-красный (-128 до +127), b: синий-жёлтый (-128 до +127)">Lab: {rgbToLab(extractRGB(pipetteColor1))}</p>
                       <p className="status-bar__text" title="OKLch - современное перцептуально равномерное пространство. L: яркость (0-1), C: хрома/насыщенность (0+), h: оттенок (0-360°)">OKLch: {rgbToOKLch(extractRGB(pipetteColor1))}</p>
-                    </div>
+            </div>
                   </div>
                 </div>
               )}

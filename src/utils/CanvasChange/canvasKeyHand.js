@@ -38,6 +38,50 @@ export const constrainImagePosition = (newX, newY, canvasWidth, canvasHeight, sc
     return { x: constrainedX, y: constrainedY };
 };
 
+// Функция для ограничения позиции отдельного слоя
+export const constrainLayerPosition = (newX, newY, canvasWidth, canvasHeight, scaledImageWidth, scaledImageHeight, baseImagePosition = { x: 0, y: 0 }) => {
+    // Рассчитываем центральную позицию изображения (без смещения)
+    const centerX = (canvasWidth - scaledImageWidth) / 2;
+    const centerY = (canvasHeight - scaledImageHeight) / 2;
+    
+    // Рассчитываем финальную позицию слоя на экране (базовая позиция + позиция слоя)
+    const finalX = baseImagePosition.x + newX;
+    const finalY = baseImagePosition.y + newY;
+    
+    // Рассчитываем позицию изображения с учетом всех смещений
+    const imageLeft = centerX + finalX;
+    const imageTop = centerY + finalY;
+    const imageRight = imageLeft + scaledImageWidth;
+    const imageBottom = imageTop + scaledImageHeight;
+    
+    // Минимальная видимая часть изображения (в пикселях)
+    const minVisibleEdge = 50;
+    
+    // Ограничения: минимальный край изображения всегда должен быть виден
+    let constrainedLayerX = newX;
+    let constrainedLayerY = newY;
+    
+    // Проверяем границы по X (горизонталь)
+    if (imageRight < minVisibleEdge) {
+        // Изображение ушло слишком далеко влево - оставляем минимальный видимый край
+        constrainedLayerX = minVisibleEdge - centerX - scaledImageWidth - baseImagePosition.x;
+    } else if (imageLeft > canvasWidth - minVisibleEdge) {
+        // Изображение ушло слишком далеко вправо - оставляем минимальный видимый край
+        constrainedLayerX = canvasWidth - minVisibleEdge - centerX - baseImagePosition.x;
+    }
+    
+    // Проверяем границы по Y (вертикаль)
+    if (imageBottom < minVisibleEdge) {
+        // Изображение ушло слишком далеко вверх - оставляем минимальный видимый край
+        constrainedLayerY = minVisibleEdge - centerY - scaledImageHeight - baseImagePosition.y;
+    } else if (imageTop > canvasHeight - minVisibleEdge) {
+        // Изображение ушло слишком далеко вниз - оставляем минимальный видимый край
+        constrainedLayerY = canvasHeight - minVisibleEdge - centerY - baseImagePosition.y;
+    }
+    
+    return { x: constrainedLayerX, y: constrainedLayerY };
+};
+
 export const updateTranslation = (animationFrameId, canvasTranslation, setCanvasTranslation, imagePosition, setImagePosition, dx, dy) => {
     if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
