@@ -57,6 +57,8 @@ const Editor = () => {
   const draggingTimeoutRef = useRef(null); // Таймер для стабилизации isDragging
   const [isActivelyMoving, setIsActivelyMoving] = useState(false); // Флаг активного движения
   const movingTimeoutRef = useRef(null); // Таймер для флага активного движения
+  const [isZooming, setIsZooming] = useState(false); // Флаг зумирования
+  const [needsRedraw, setNeedsRedraw] = useState(true); // Флаг необходимости перерисовки
   const [isActivelyZooming, setIsActivelyZooming] = useState(false); // Флаг активного зумирования
   const zoomingTimeoutRef = useRef(null); // Таймер для флага активного зумирования
   const [canvasTranslation, setCanvasTranslation] = useState({ x: 0, y: 0 });
@@ -112,6 +114,17 @@ const Editor = () => {
   const updateLayersWithRenumbering = useCallback((newLayers) => {
     console.log('📝 updateLayersWithRenumbering: вызван');
     
+    // ПРИНУДИТЕЛЬНО сбрасываем isZooming при изменениях слоёв
+    if (isZooming) {
+      console.log('🔧 updateLayersWithRenumbering: принудительный сброс isZooming=false');
+      setIsZooming(false);
+      // Очищаем таймаут зума
+      if (zoomTimeoutRef.current) {
+        clearTimeout(zoomTimeoutRef.current);
+        zoomTimeoutRef.current = null;
+      }
+    }
+    
     // Проверяем, нужно ли переименовывать слои
     const needsRenaming = newLayers.some((layer, index) => {
       const expectedName = `Слой ${index + 1}`;
@@ -128,7 +141,7 @@ const Editor = () => {
     // ТОЛЬКО для реальных изменений структуры слоев требуют перерисовки  
     console.log('🎨 updateLayersWithRenumbering: требует перерисовки');
     setNeedsRedraw(true);
-  }, [updateLayers, renumberLayers]);
+  }, [updateLayers, renumberLayers, isZooming]);
 
   // Обертка для updateLayers без переименования (для перетаскивания и других операций)
   const updateLayersWithoutRenumbering = useCallback((newLayers) => {
@@ -139,10 +152,24 @@ const Editor = () => {
 
   // Обертка для операций, которые не должны переименовывать слои
   const updateLayersForProperties = useCallback((newLayers) => {
+    console.log('🔄 updateLayersForProperties: обновление свойств слоёв');
+    
+    // ПРИНУДИТЕЛЬНО сбрасываем isZooming при изменениях слоёв
+    if (isZooming) {
+      console.log('🔧 updateLayersForProperties: принудительный сброс isZooming=false');
+      setIsZooming(false);
+      // Очищаем таймаут зума
+      if (zoomTimeoutRef.current) {
+        clearTimeout(zoomTimeoutRef.current);
+        zoomTimeoutRef.current = null;
+      }
+    }
+    
     updateLayers(newLayers);
     // Изменения свойств слоев (видимость, прозрачность, etc) требуют перерисовки
     setNeedsRedraw(true);
-  }, [updateLayers]);
+    console.log('🎨 updateLayersForProperties: установлен needsRedraw=true');
+  }, [updateLayers, isZooming]);
 
   // Обертка для addLayer с переименованием
   const addLayerWithRenumbering = useCallback((newLayer) => {
@@ -199,8 +226,6 @@ const Editor = () => {
 
   const [imagePosition, setImagePosition] = useState({ x: 0, y: 0 });
   const [showScrollbars, setShowScrollbars] = useState(false);
-  const [isZooming, setIsZooming] = useState(false);
-  const [needsRedraw, setNeedsRedraw] = useState(true); // Флаг необходимости перерисовки
   
   // Коэффициенты чувствительности перемещения
   const handToolSensitivity = 0.5; // Для инструмента "Рука"
@@ -380,6 +405,7 @@ const Editor = () => {
         
         // Отмечаем что начинается зум
         setIsZooming(true);
+        console.log('🔍 mouseWheel: установлен isZooming=true');
         
         // Очищаем предыдущий таймаут
         if (zoomTimeoutRef.current) {
@@ -418,7 +444,8 @@ const Editor = () => {
         // Устанавливаем таймаут для завершения зума
         zoomTimeoutRef.current = setTimeout(() => {
           setIsZooming(false);
-        }, 150); // 150ms после последнего события колеса
+          console.log('✅ mouseWheel: сброшен isZooming=false (таймаут 500ms)');
+        }, 500); // 500ms после последнего события колеса
       };
 
       // Обработчик события касания для масштабирования на мобильных устройствах
@@ -690,12 +717,6 @@ const Editor = () => {
 
   // Основная функция перерисовки canvas через систему слоев
   const drawImageOnCanvas = useCallback(async () => {
-    // ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА: не рисуем во время активности
-    if (isDragging || isMouseWheelDown || isActivelyMoving || isActivelyZooming || isZooming) {
-      console.log(`🚫 drawImageOnCanvas: БЛОКИРОВАН (isDragging=${isDragging}, isMouseWheelDown=${isMouseWheelDown}, isActivelyMoving=${isActivelyMoving}, isActivelyZooming=${isActivelyZooming}, isZooming=${isZooming})`);
-      return;
-    }
-    
     const start = performance.now();
     console.log('🎨 drawImageOnCanvas: НАЧАТ');
     
@@ -942,11 +963,15 @@ const Editor = () => {
 
   // Перерисовываем canvas только когда действительно нужно И НЕ ДВИГАЕМ И НЕ ЗУМИМ
   useEffect(() => {
+    console.log(`🔍 useEffect[needsRedraw]: needsRedraw=${needsRedraw}, состояния: isDragging=${isDragging}, isMouseWheelDown=${isMouseWheelDown}, isActivelyMoving=${isActivelyMoving}, isActivelyZooming=${isActivelyZooming}, isZooming=${isZooming}`);
+    
     if (needsRedraw && !isDragging && !isMouseWheelDown && !isActivelyMoving && !isActivelyZooming && !isZooming) {
       console.log('🎨 useEffect: запуск drawImageOnCanvas (needsRedraw=true, ВСЕ ФЛАГИ АКТИВНОСТИ=false)');
       drawImageOnCanvas();
+      setNeedsRedraw(false); // Сбрасываем флаг после перерисовки
+      console.log('✅ useEffect: сброшен needsRedraw=false после перерисовки');
     } else {
-      console.log(`🚫 useEffect: пропуск drawImageOnCanvas (needsRedraw=${needsRedraw}, isDragging=${isDragging}, isMouseWheelDown=${isMouseWheelDown}, isActivelyMoving=${isActivelyMoving}, isActivelyZooming=${isActivelyZooming}, isZooming=${isZooming})`);
+      console.log(`🚫 useEffect: пропуск drawImageOnCanvas (причина: needsRedraw=${needsRedraw} или активность)`);
     }
   }, [drawImageOnCanvas, needsRedraw, isDragging, isMouseWheelDown, isActivelyMoving, isActivelyZooming, isZooming]);
 
