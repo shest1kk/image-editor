@@ -49,7 +49,8 @@ const LayersPanel = ({
       type: 'empty', // 'image', 'color', 'empty'
       data: null,
       preview: null,
-      alphaChannel: null
+      alphaChannel: null,
+      position: { x: 0, y: 0 } // Индивидуальная позиция слоя
     };
 
     onAddLayer && onAddLayer(newLayer);
@@ -228,7 +229,8 @@ const LayersPanel = ({
                 data: e.target.result,
                 preview,
                 name: file.name || layer.name,
-                alphaChannel
+                alphaChannel,
+                position: layer.position || { x: 0, y: 0 } // Обеспечиваем наличие позиции
               }
             : layer
         );
@@ -265,12 +267,14 @@ const LayersPanel = ({
               data: layer.data,
               preview: layer.preview,
               name: layer.name,
-              alphaChannel: layer.alphaChannel
+              alphaChannel: layer.alphaChannel,
+              position: layer.position
             } : layer.originalState,
             type: 'color',
             data: color,
             preview,
-            name: `Цвет ${color}`
+            name: `Цвет ${color}`,
+            position: layer.position || { x: 0, y: 0 } // Обеспечиваем наличие позиции
           }
         : layer
     );

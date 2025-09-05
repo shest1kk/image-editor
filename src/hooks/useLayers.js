@@ -9,14 +9,15 @@ const useLayers = (initialImage = null) => {
   const initializeWithImage = useCallback((imageUrl, imageName = 'Слой 1') => {
     const baseLayer = {
       id: 'base-layer',
-      name: 'Слой 1',
+      name: 'Слой 1', // Базовый слой всегда "Слой 1"
       visible: true,
       opacity: 100,
       blendMode: 'normal',
       type: 'image',
       data: imageUrl,
       preview: null,
-      alphaChannel: null
+      alphaChannel: null,
+      position: { x: 0, y: 0 } // Добавляем позицию для базового слоя
     };
 
     // Создаем превью для базового слоя

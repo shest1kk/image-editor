@@ -120,7 +120,24 @@
 
 .layer-item--active {
   border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.4);
+  background-color: rgba(0, 123, 255, 0.05);
+  position: relative;
+}
+
+.layer-item--active::before {
+  content: "✓ АКТИВЕН";
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  background: var(--primary-color);
+  color: white;
+  font-size: 0.6rem;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 0 8px 0 8px;
+  z-index: 5;
+  pointer-events: none;
 }
 
 .layer-item__main {

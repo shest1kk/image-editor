@@ -84,28 +84,20 @@ const Editor = () => {
   // Функция для переименования слоев в правильном порядке
   const renumberLayers = useCallback((layersArray) => {
     return layersArray.map((layer, index) => {
-      // Проверяем, нужно ли переименовывать слой
-      const expectedName = `Слой ${index + 1}`;
-      
-      // Если слой уже имеет правильное имя, не переименовываем
-      if (layer.name === expectedName) {
-        return layer;
-      }
-      
-      // Если это первый слой (index 0) - должен быть "Слой 2" (новый слой)
+      // Новый слой (index 0) всегда "Слой 2" (верхний)
       if (index === 0) {
         return { ...layer, name: "Слой 2" };
       }
       
-      // Если это второй слой (index 1) - должен быть "Слой 1" (исходное изображение)
+      // Исходное изображение (index 1) всегда "Слой 1" (нижний)
       if (index === 1) {
         return { ...layer, name: "Слой 1" };
       }
       
-      // Для остальных случаев используем стандартную логику
+      // Для остальных случаев (если будет больше 2 слоев в будущем)
       return {
         ...layer,
-        name: expectedName
+        name: `Слой ${index + 1}`
       };
     });
   }, []);
@@ -474,12 +466,12 @@ const Editor = () => {
           if (needsScrollbars) {
             // С отступами
             const padding = 100;
-            centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x;
-            centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y;
+            centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x + (layer.position?.x || 0);
+            centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y + (layer.position?.y || 0);
           } else {
             // Обычное центрирование
-            centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x;
-            centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y;
+            centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x + (layer.position?.x || 0);
+            centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y + (layer.position?.y || 0);
           }
 
           // Рисуем фон для прозрачности только если явно указано
@@ -525,11 +517,11 @@ const Editor = () => {
     
     if (needsScrollbars) {
       const padding = 100;
-      centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x;
-      centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y;
+      centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x + (layer.position?.x || 0);
+      centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y + (layer.position?.y || 0);
     } else {
-      centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x;
-      centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y;
+      centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x + (layer.position?.x || 0);
+      centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y + (layer.position?.y || 0);
     }
 
     ctx.fillStyle = layer.data;
@@ -870,29 +862,46 @@ const Editor = () => {
       const dx = (x - cursor.x) * sensitivity;
       const dy = (y - cursor.y) * sensitivity;
 
-      // Обновляем позицию изображения с учетом чувствительности и ограничений
-      setImagePosition(prevPosition => {
-        const newX = prevPosition.x + dx;
-        const newY = prevPosition.y + dy;
-        
-        // Получаем размеры контейнера и изображения
-        const canvasElement = canvas.current;
-        const containerElement = scrollContainer.current;
-        if (!canvasElement || !containerElement) return prevPosition;
-        
-        const scaledImageWidth = originalDimensions.width * (scaleFactor / 100);
-        const scaledImageHeight = originalDimensions.height * (scaleFactor / 100);
-        
-        // Применяем ограничения относительно размеров контейнера (viewport)
-        return constrainImagePosition(
-          newX, 
-          newY, 
-          containerElement.clientWidth, 
-          containerElement.clientHeight, 
-          scaledImageWidth, 
-          scaledImageHeight
+      // Перемещаем только активный слой, а не всю композицию
+      if (activeLayerId) {
+        updateLayers(prevLayers => 
+          prevLayers.map(layer => 
+            layer.id === activeLayerId 
+              ? {
+                  ...layer,
+                  position: {
+                    x: (layer.position?.x || 0) + dx,
+                    y: (layer.position?.y || 0) + dy
+                  }
+                }
+              : layer
+          )
         );
-      });
+      } else {
+        // Если нет активного слоя, перемещаем всю композицию (старое поведение)
+        setImagePosition(prevPosition => {
+          const newX = prevPosition.x + dx;
+          const newY = prevPosition.y + dy;
+          
+          // Получаем размеры контейнера и изображения
+          const canvasElement = canvas.current;
+          const containerElement = scrollContainer.current;
+          if (!canvasElement || !containerElement) return prevPosition;
+          
+          const scaledImageWidth = originalDimensions.width * (scaleFactor / 100);
+          const scaledImageHeight = originalDimensions.height * (scaleFactor / 100);
+          
+          // Применяем ограничения относительно размеров контейнера (viewport)
+          return constrainImagePosition(
+            newX, 
+            newY, 
+            containerElement.clientWidth, 
+            containerElement.clientHeight, 
+            scaledImageWidth, 
+            scaledImageHeight
+          );
+        });
+      }
     }
 
     // Обновляем курсор в конце
