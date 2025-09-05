@@ -1,4 +1,4 @@
-import React, { useRef, useContext, useEffect, useState, useCallback } from "react";
+import React, { useRef, useContext, useEffect, useState, useCallback, useMemo } from "react";
 import { Navigate } from "react-router-dom";
 import { ImageContext } from "@/ImageProvider";
 import "./Editor.css";
@@ -13,7 +13,8 @@ import Modal from "@components/Modal/Modal";
 import ScalingModal from "./ScalingModal/ScalingModal";
 import ContextModal from "@components/ContextModal/ContextModal";
 import CurvesModal from "./CurvesModal/CurvesModal";
-import FilterModal from "./FilterModal/FilterModal";
+import LayersPanel from "@components/LayersPanel/LayersPanel";
+// import FilterModal from "./FilterModal/FilterModal";
 import { GrayBit7Handler } from "@utils/ImageFormats/GrayBit7";
 import { ColorDepthAnalyzer } from "@utils/ImageAnalysis/colorDepth";
 
@@ -27,6 +28,7 @@ import {
 
 
 import { calculateFileSize } from "@utils/FileSize/fileSize";
+import useLayers from "@hooks/useLayers";
 import { 
   extractRGB, 
   rgbToXyz, 
@@ -60,9 +62,98 @@ const Editor = () => {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isModalCurvesOpen, setIsModalCurvesOpen] = useState(false);
-  const [isModalFilterOpen, setIsModalFilterOpen] = useState(false);
+  // const [isModalFilterOpen, setIsModalFilterOpen] = useState(false);
   const [isContextModalOpen, setIsContextModalOpen] = useState(false);
+  const [showLayersPanel, setShowLayersPanel] = useState(false);
 
+  // Layers management
+  const {
+    layers,
+    activeLayerId,
+    canvasRef: layersCanvasRef,
+    initializeWithImage,
+    addLayer,
+    updateLayers,
+    setActiveLayer,
+    getActiveLayer,
+    renderLayers,
+    exportComposite,
+    getLayersInfo
+  } = useLayers();
+
+  // Функция для переименования слоев в правильном порядке
+  const renumberLayers = useCallback((layersArray) => {
+    return layersArray.map((layer, index) => {
+      // Проверяем, нужно ли переименовывать слой
+      const expectedName = `Слой ${index + 1}`;
+      
+      // Если слой уже имеет правильное имя, не переименовываем
+      if (layer.name === expectedName) {
+        return layer;
+      }
+      
+      // Если это первый слой (index 0) - должен быть "Слой 2" (новый слой)
+      if (index === 0) {
+        return { ...layer, name: "Слой 2" };
+      }
+      
+      // Если это второй слой (index 1) - должен быть "Слой 1" (исходное изображение)
+      if (index === 1) {
+        return { ...layer, name: "Слой 1" };
+      }
+      
+      // Для остальных случаев используем стандартную логику
+      return {
+        ...layer,
+        name: expectedName
+      };
+    });
+  }, []);
+
+  // Обертка для updateLayers с переименованием
+  const updateLayersWithRenumbering = useCallback((newLayers) => {
+    // Проверяем, нужно ли переименовывать слои
+    const needsRenaming = newLayers.some((layer, index) => {
+      const expectedName = `Слой ${index + 1}`;
+      return layer.name !== expectedName;
+    });
+    
+    if (needsRenaming) {
+      const renumberedLayers = renumberLayers(newLayers);
+      updateLayers(renumberedLayers);
+    } else {
+      updateLayers(newLayers);
+    }
+  }, [updateLayers, renumberLayers]);
+
+  // Обертка для updateLayers без переименования (для перетаскивания и других операций)
+  const updateLayersWithoutRenumbering = useCallback((newLayers) => {
+    updateLayers(newLayers);
+  }, [updateLayers]);
+
+  // Обертка для операций, которые не должны переименовывать слои
+  const updateLayersForProperties = useCallback((newLayers) => {
+    updateLayers(newLayers);
+  }, [updateLayers]);
+
+  // Обертка для addLayer с переименованием
+  const addLayerWithRenumbering = useCallback((newLayer) => {
+    // Устанавливаем имя "Слой 2" для нового слоя
+    const layerWithCorrectName = {
+      ...newLayer,
+      name: "Слой 2"
+    };
+    
+    // Добавляем слой (он добавляется в начало массива)
+    addLayer(layerWithCorrectName);
+    
+    // Убеждаемся, что слои имеют правильные имена
+    setTimeout(() => {
+      const allLayers = [layerWithCorrectName, ...layers];
+      const renumberedLayers = renumberLayers(allLayers);
+      updateLayers(renumberedLayers);
+    }, 10);
+  }, [addLayer, layers, renumberLayers, updateLayers]);
 
 
   const canvas = useRef();
@@ -139,7 +230,7 @@ const Editor = () => {
   const closeModal = () => {
     setIsModalOpen(false);
     setIsModalCurvesOpen(false);
-    setIsModalFilterOpen(false);
+    // setIsModalFilterOpen(false);
   };
 
   const openContextModal = () => {
@@ -231,35 +322,10 @@ const Editor = () => {
         setOriginalFormat(null);
       }
 
-      // Функция для перерисовки canvas
+      // Функция для совместимости - будет заменена на новую систему слоев
       const redrawCanvas = () => {
-        if (!context.current || !canvasElement) return;
-        
-        // Пересчитываем размеры при каждой перерисовке
-        const currentScaledWidth = img.width * (scaleFactor / 100);
-        const currentScaledHeight = img.height * (scaleFactor / 100);
-        
-        context.current.clearRect(0, 0, canvasElement.width, canvasElement.height);
-        
-        // Calculate center position (при загрузке изображения позиция всегда (0,0))
-        const centerX = (canvasElement.width - currentScaledWidth) / 2;
-        const centerY = (canvasElement.height - currentScaledHeight) / 2;
-
-        // Если изображение имеет прозрачность, рисуем шахматный фон
-        if (originalFormat && originalFormat.metadata && originalFormat.metadata.hasMask) {
-          drawTransparencyBackground(context.current, centerX, centerY, currentScaledWidth, currentScaledHeight);
-        }
-
-        context.current.drawImage(
-            img,
-            centerX,
-            centerY,
-            currentScaledWidth,
-            currentScaledHeight
-        );
-        
-        // Обновляем dimensions
-        setDimensions({ width: currentScaledWidth, height: currentScaledHeight });
+        // Эта функция будет переопределена после загрузки
+        console.log('Старая redrawCanvas - будет заменена после инициализации слоев');
       };
       
       // Сохраняем функцию в глобальной области для доступа из других useEffect
@@ -267,6 +333,10 @@ const Editor = () => {
 
       // Первоначальная отрисовка будет выполнена через drawImageOnCanvas useEffect
       calculateFileSize(img.src).then(size => setFileSize(formatFileSize(size)));
+      
+      // Инициализируем слои с базовым изображением
+      const imageName = filename || 'Фоновый слой';
+      initializeWithImage(image, imageName);
 
       // Обработчик события колесика мыши для масштабирования
       const handleWheel = (event) => {
@@ -378,77 +448,282 @@ const Editor = () => {
     containerElement.scrollTop = Math.max(0, Math.min(scrollY, canvasHeight - containerElement.clientHeight));
   }, [showScrollbars, originalDimensions, scaleFactor, imagePosition]);
 
-  // Основная функция перерисовки canvas
-  const drawImageOnCanvas = useCallback(() => {
-    if (!context.current || !canvas.current || !image) return;
+  // Преобразование режимов наложения в CSS/Canvas операции
+  const getCompositeOperation = useCallback((blendMode) => {
+    switch (blendMode) {
+      case 'multiply':
+        return 'multiply';
+      case 'screen':
+        return 'screen';
+      case 'overlay':
+        return 'overlay';
+      case 'normal':
+      default:
+        return 'source-over';
+    }
+  }, []);
+
+  // Рендеринг слоя с изображением на основном canvas
+  const renderImageLayerOnCanvas = useCallback((ctx, layer, canvasElement, scaledWidth, scaledHeight, needsScrollbars, drawBackground = true) => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let centerX, centerY;
+          
+          if (needsScrollbars) {
+            // С отступами
+            const padding = 100;
+            centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x;
+            centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y;
+          } else {
+            // Обычное центрирование
+            centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x;
+            centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y;
+          }
+
+          // Рисуем фон для прозрачности только если явно указано
+          if (drawBackground && originalFormat && originalFormat.metadata && originalFormat.metadata.hasMask) {
+            drawTransparencyBackground(ctx, centerX, centerY, scaledWidth, scaledHeight);
+          }
+
+          // Если альфа-канал отключен, рендерим изображение без прозрачности
+          if (layer.alphaChannel && !layer.alphaChannel.visible) {
+            // Создаем временный canvas для удаления прозрачности
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = img.width;
+            tempCanvas.height = img.height;
+            
+            // Заливаем белым фоном
+            tempCtx.fillStyle = '#ffffff';
+            tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+            
+            // Рисуем изображение поверх
+            tempCtx.drawImage(img, 0, 0);
+            
+            // Рендерим на основном canvas
+            ctx.drawImage(tempCanvas, centerX, centerY, scaledWidth, scaledHeight);
+          } else {
+            // Обычный рендеринг с сохранением прозрачности
+            ctx.drawImage(img, centerX, centerY, scaledWidth, scaledHeight);
+          }
+          
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      };
+      img.onerror = reject;
+      img.src = layer.data;
+    });
+  }, [imagePosition, originalFormat]);
+
+  // Рендеринг цветного слоя на основном canvas
+  const renderColorLayerOnCanvas = useCallback((ctx, layer, canvasElement, scaledWidth, scaledHeight, needsScrollbars) => {
+    let centerX, centerY;
+    
+    if (needsScrollbars) {
+      const padding = 100;
+      centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x;
+      centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y;
+    } else {
+      centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x;
+      centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y;
+    }
+
+    ctx.fillStyle = layer.data;
+    ctx.fillRect(centerX, centerY, scaledWidth, scaledHeight);
+  }, [imagePosition]);
+
+  // Функция рендеринга слоев на основном canvas
+  const renderLayersOnCanvas = useCallback(async (canvasElement, scaledWidth, scaledHeight, needsScrollbars) => {
+    const ctx = context.current;
+    if (!ctx) return;
+
+    let centerX, centerY;
+    
+    if (needsScrollbars) {
+      // С отступами
+      const padding = 100;
+      centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x;
+      centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y;
+    } else {
+      // Обычное центрирование
+      centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x;
+      centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y;
+    }
+
+    // Получаем видимые слои в правильном порядке (нижние слои первыми)
+    const visibleLayers = [...layers].reverse().filter(layer => layer.visible);
+
+    // Проверяем, нужен ли шахматный фон
+    const hasTransparentImageLayers = visibleLayers.some(layer => 
+      layer.type === 'image' && 
+      originalFormat && 
+      originalFormat.metadata && 
+      originalFormat.metadata.hasMask
+    );
+
+    // Более точная проверка: есть ли цветные слои ПОД всеми прозрачными слоями
+    let needsTransparencyBackground = false;
+    
+    if (hasTransparentImageLayers) {
+      // Находим все прозрачные слои
+      const transparentLayers = visibleLayers.filter(layer => 
+        layer.type === 'image' && 
+        originalFormat && 
+        originalFormat.metadata && 
+        originalFormat.metadata.hasMask
+      );
+      
+      // Для каждого прозрачного слоя проверяем, есть ли под ним цветные слои
+      for (const transparentLayer of transparentLayers) {
+        const layerIndex = visibleLayers.indexOf(transparentLayer);
+        const layersBelow = visibleLayers.slice(0, layerIndex);
+        const hasColorBelow = layersBelow.some(layer => layer.type === 'color');
+        
+        if (!hasColorBelow) {
+          needsTransparencyBackground = true;
+          break;
+        }
+      }
+    }
+
+    // Рисуем шахматный фон только если действительно нужен
+    if (needsTransparencyBackground) {
+      drawTransparencyBackground(ctx, centerX, centerY, scaledWidth, scaledHeight);
+    }
+
+    // Рендерим слои в обратном порядке (последний в массиве рисуется последним = поверх)
+    for (const layer of visibleLayers) {
+      try {
+        // Сохраняем состояние контекста
+        ctx.save();
+
+        // Устанавливаем прозрачность
+        ctx.globalAlpha = layer.opacity / 100;
+
+        // Устанавливаем режим наложения
+        ctx.globalCompositeOperation = getCompositeOperation(layer.blendMode);
+
+        if (layer.type === 'image') {
+          await renderImageLayerOnCanvas(ctx, layer, canvasElement, scaledWidth, scaledHeight, needsScrollbars, false); // Передаем false для отключения фона
+        } else if (layer.type === 'color') {
+          renderColorLayerOnCanvas(ctx, layer, canvasElement, scaledWidth, scaledHeight, needsScrollbars);
+        }
+
+        // Восстанавливаем состояние контекста
+        ctx.restore();
+      } catch (error) {
+        console.error('Ошибка рендеринга слоя:', layer.name, error);
+      }
+    }
+  }, [layers, getCompositeOperation, renderImageLayerOnCanvas, renderColorLayerOnCanvas, imagePosition, originalFormat]);
+
+  // Основная функция перерисовки canvas через систему слоев
+  const drawImageOnCanvas = useCallback(async () => {
+    if (!context.current || !canvas.current || layers.length === 0) return;
     
     const canvasElement = canvas.current;
-    const img = new Image();
-    img.src = image;
     
-    img.onload = () => {
-      // Рассчитываем размеры с текущим масштабом
-      const scaledWidth = img.width * (scaleFactor / 100);
-      const scaledHeight = img.height * (scaleFactor / 100);
+    // Ищем любой слой с изображением (даже скрытый) для определения размеров
+    // Также ищем слои, которые раньше были изображениями (сохраняем originalDimensions)
+    const imageLayer = layers.find(layer => layer.type === 'image');
+    
+    // Проверяем, есть ли вообще видимые слои (любого типа)
+    const hasVisibleLayers = layers.some(layer => layer.visible);
+    if (!hasVisibleLayers) {
+      // Если нет видимых слоев вообще, очищаем canvas
+      context.current.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      return;
+    }
+
+    // Проверяем, нужно ли перерисовывать (избегаем лишних перерисовок)
+    const currentScale = scaleFactor;
+    const currentPosition = imagePosition;
+    
+    // ВРЕМЕННО ОТКЛЮЧЕНО: оптимизация может вызывать бесконечный цикл
+    // if (canvasElement.dataset.lastScale === currentScale.toString() && 
+    //     canvasElement.dataset.lastPosition === JSON.stringify(currentPosition)) {
+    //   console.log('🚫 Skipping redraw - same scale and position');
+    //   return;
+    // }
+    
+    if (imageLayer) {
+      // Если есть слой с изображением, используем его размеры (независимо от видимости)
+      const img = new Image();
+      img.src = imageLayer.data;
       
-      // Проверяем нужны ли scrollbars и получаем результат
-      const needsScrollbars = checkScrollbarsNeeded();
-      
-      if (needsScrollbars) {
-        // Если нужны scrollbars, увеличиваем canvas до размера изображения + отступы
-        const padding = 100; // Отступы вокруг изображения
-        canvasElement.width = scaledWidth + padding * 2;
-        canvasElement.height = scaledHeight + padding * 2;
+      await new Promise((resolve) => {
+        img.onload = () => {
+          // Рассчитываем размеры с текущим масштабом
+          const scaledWidth = img.width * (scaleFactor / 100);
+          const scaledHeight = img.height * (scaleFactor / 100);
+          renderWithDimensions(canvasElement, scaledWidth, scaledHeight, resolve);
+        };
+      });
+    } else if (originalDimensions.width && originalDimensions.height) {
+      // Если нет слоя с изображением, но есть сохраненные оригинальные размеры
+      const scaledWidth = originalDimensions.width * (scaleFactor / 100);
+      const scaledHeight = originalDimensions.height * (scaleFactor / 100);
+      renderWithDimensions(canvasElement, scaledWidth, scaledHeight, () => {});
+    } else {
+      // Если нет ни слоя с изображением, ни оригинальных размеров, используем размеры canvas
+      const currentWidth = canvasElement.width;
+      const currentHeight = canvasElement.height;
+      renderWithDimensions(canvasElement, currentWidth, currentHeight, () => {});
+    }
+    
+    // Вспомогательная функция для рендеринга с заданными размерами
+    function renderWithDimensions(canvasElement, scaledWidth, scaledHeight, resolve) {
         
-        // Центрируем изображение относительно canvas (с учетом padding)
-        const centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x;
-        const centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y;
+        // Проверяем нужны ли scrollbars и получаем результат
+        const needsScrollbars = checkScrollbarsNeeded();
+        
+        if (needsScrollbars) {
+          // Если нужны scrollbars, увеличиваем canvas до размера изображения + отступы
+          const padding = 100;
+          canvasElement.width = scaledWidth + padding * 2;
+          canvasElement.height = scaledHeight + padding * 2;
+        } else {
+          // Восстанавливаем размеры canvas под контейнер
+          if (scrollContainer.current) {
+            canvasElement.width = scrollContainer.current.clientWidth;
+            canvasElement.height = scrollContainer.current.clientHeight;
+          }
+        }
         
         // Очищаем canvas
         context.current.clearRect(0, 0, canvasElement.width, canvasElement.height);
         
-        // Рисуем фон для прозрачности если нужно
-        if (originalFormat && originalFormat.metadata && originalFormat.metadata.hasMask) {
-          drawTransparencyBackground(context.current, centerX, centerY, scaledWidth, scaledHeight);
-        }
-        
-        // Рисуем изображение
-        context.current.drawImage(img, centerX, centerY, scaledWidth, scaledHeight);
+        // Рендерим все видимые слои через систему слоев
+        renderLayersOnCanvas(canvasElement, scaledWidth, scaledHeight, needsScrollbars);
         
         // Автоматически синхронизируем scrollbars при центрированной позиции (но не во время зума)
-        if (scrollContainer.current && imagePosition.x === 0 && imagePosition.y === 0 && !isZooming) {
+        if (needsScrollbars && scrollContainer.current && imagePosition.x === 0 && imagePosition.y === 0 && !isZooming) {
           setTimeout(() => {
             syncScrollbarsWithImagePosition();
           }, 0);
         }
-      } else {
-        // Обычная отрисовка для случая когда изображение помещается
-        // Восстанавливаем размеры canvas под контейнер
-        if (scrollContainer.current) {
-          canvasElement.width = scrollContainer.current.clientWidth;
-          canvasElement.height = scrollContainer.current.clientHeight;
-        }
         
-        // Очищаем canvas
-        context.current.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        // Обновляем dimensions для других компонентов
+        setDimensions({ width: scaledWidth, height: scaledHeight });
         
-        // Рассчитываем позицию для центрирования + смещение от перетаскивания
-        const centerX = (canvasElement.width - scaledWidth) / 2 + imagePosition.x;
-        const centerY = (canvasElement.height - scaledHeight) / 2 + imagePosition.y;
+        // ВРЕМЕННО ОТКЛЮЧЕНО: сохранение состояния может вызывать проблемы
+        // canvasElement.dataset.lastScale = currentScale.toString();
+        // canvasElement.dataset.lastPosition = JSON.stringify(currentPosition);
+        
+        resolve();
+    }
+  }, [layers, scaleFactor, imagePosition, checkScrollbarsNeeded, syncScrollbarsWithImagePosition, isZooming, renderLayersOnCanvas]);
 
-        // Рисуем фон для прозрачности если нужно
-        if (originalFormat && originalFormat.metadata && originalFormat.metadata.hasMask) {
-          drawTransparencyBackground(context.current, centerX, centerY, scaledWidth, scaledHeight);
-        }
-
-        // Рисуем изображение
-        context.current.drawImage(img, centerX, centerY, scaledWidth, scaledHeight);
-      }
-      
-      // Обновляем dimensions для других компонентов (синхронизируем с redrawCanvas)
-      setDimensions({ width: scaledWidth, height: scaledHeight });
+  // Переопределяем window.redrawCanvas для совместимости
+  useEffect(() => {
+    window.redrawCanvas = () => {
+      drawImageOnCanvas();
     };
-  }, [image, scaleFactor, imagePosition, originalFormat, checkScrollbarsNeeded, syncScrollbarsWithImagePosition, isZooming]);
+  }, [drawImageOnCanvas]);
 
   // Синхронизируем ref'ы с состояниями для использования в handleWheel
   useEffect(() => {
@@ -500,6 +775,34 @@ const Editor = () => {
       syncScrollbarsWithImagePosition();
     }
   }, [isZooming, syncScrollbarsWithImagePosition]);
+
+  // Создаем мемоизированное значение для отслеживания изменений свойств слоев
+  const layersSignature = useMemo(() => {
+    return layers.map(layer => `${layer.id}-${layer.visible}-${layer.opacity}-${layer.blendMode}`).join('|');
+  }, [layers]);
+
+  // Перерисовываем canvas при изменении слоев (с debounce для предотвращения мерцания)
+  useEffect(() => {
+    if (layers.length > 0) {
+      // Очищаем предыдущий таймаут
+      if (zoomTimeoutRef.current) {
+        clearTimeout(zoomTimeoutRef.current);
+      }
+      
+      // Используем debounce для предотвращения частых перерисовок
+      zoomTimeoutRef.current = setTimeout(() => {
+        requestAnimationFrame(() => {
+          drawImageOnCanvas();
+        });
+      }, 50); // 50ms debounce
+      
+      return () => {
+        if (zoomTimeoutRef.current) {
+          clearTimeout(zoomTimeoutRef.current);
+        }
+      };
+    }
+  }, [layersSignature, drawImageOnCanvas]);
 
   // Обработчик скролла
   const handleScroll = useCallback((e) => {
@@ -840,10 +1143,14 @@ const Editor = () => {
     setToolActive("cursor");
   };
 
-  const openFilterModal = () => {
-    setIsModalFilterOpen(true);
-    setToolActive("cursor");
+  const toggleLayersPanel = () => {
+    setShowLayersPanel(prev => !prev);
   };
+
+  // const openFilterModal = () => {
+  //   setIsModalFilterOpen(true);
+  //   setToolActive("cursor");
+  // };
 
   const handleCanvasClick = (event) => {
     const canvasRef = canvas.current;
@@ -962,7 +1269,8 @@ const Editor = () => {
         handleDownload={handleDownload}
         openModal={openModal}
         openCurvesModal={openCurvesModal}
-        openFilterModal={openFilterModal}
+        onToggleLayersPanel={toggleLayersPanel}
+        // openFilterModal={openFilterModal}
         undo={undo}
         redo={redo}
         historyIndex={historyIndex}
@@ -1008,9 +1316,9 @@ const Editor = () => {
       <Modal w80 bg0={showBg} isOpen={isModalCurvesOpen} onClose={closeModal} title="Кривые изображения">
         {isModalCurvesOpen && <CurvesModal imageCtx={context} setImage={updateImage} closeModal={closeModal} showPreview={showPreview} />}
       </Modal>
-      <Modal bg0={showBg} isOpen={isModalFilterOpen} onClose={closeModal} title="Фильтрация изображения">
+      {/* <Modal bg0={showBg} isOpen={isModalFilterOpen} onClose={closeModal} title="Фильтрация изображения">
         {isModalFilterOpen && <FilterModal imageCtx={context} setImage={updateImage} closeModal={closeModal} showPreview={showPreview} />}
-      </Modal>
+      </Modal> */}
       <ContextModal
         isOpen={isContextModalOpen || toolActive === "pipette"}
         onClose={closeContextModal}
@@ -1085,6 +1393,22 @@ const Editor = () => {
           )}
         </div>
       </ContextModal>
+      
+      {/* Layers Panel */}
+      {showLayersPanel && (
+        <div className="editor__layers-panel">
+          <LayersPanel
+            layers={layers}
+            activeLayerId={activeLayerId}
+            onLayersChange={updateLayersWithRenumbering}
+            onLayersReorder={updateLayersWithoutRenumbering}
+            onLayersPropertiesChange={updateLayersForProperties}
+            onActiveLayerChange={setActiveLayer}
+            onAddLayer={addLayerWithRenumbering}
+            maxLayers={2}
+          />
+        </div>
+      )}
     </section>
   );
 };

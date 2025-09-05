@@ -15,7 +15,8 @@ const MenuBar = ({
   handleDownload, 
   openModal,
   openCurvesModal,
-  openFilterModal,
+  // openFilterModal,
+  onToggleLayersPanel,
   undo,
   redo,
   historyIndex,
@@ -39,7 +40,8 @@ const MenuBar = ({
             </Menu>
             <ButtonIcon title="Масштабирование" onClick={openModal}>Масштабировать</ButtonIcon>
             <ButtonIcon title="Кривые" onClick={openCurvesModal}>Кривые</ButtonIcon>
-            <ButtonIcon title="Фильтрация" onClick={openFilterModal}>Фильтрация</ButtonIcon>
+            <ButtonIcon title="Слои" onClick={onToggleLayersPanel}>Слои</ButtonIcon>
+            {/* <ButtonIcon title="Фильтрация" onClick={openFilterModal}>Фильтрация</ButtonIcon> */}
             <ButtonIcon title="Отменить" onClick={undo} disabled={historyIndex <= 0}>
               <UndoIcon />
             </ButtonIcon>

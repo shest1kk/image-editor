@@ -418,3 +418,39 @@ body.light-mode {
   color: var(--text-dark);
 }
 
+/* Layers Panel */
+.editor__layers-panel {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  max-height: calc(100vh - 40px); /* Оставляем динамическую высоту по viewport */
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+  animation: slideInFromRight 0.3s ease-out;
+  user-select: none;
+  touch-action: none;
+  pointer-events: auto;
+}
+
+@keyframes slideInFromRight {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Responsive for layers panel */
+@media (max-width: 768px) {
+  .editor__layers-panel {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    left: 10px;
+    max-height: calc(100vh - 20px); /* Оставляем адаптивную высоту */
+  }
+}
