@@ -54,6 +54,11 @@ const Editor = () => {
   const [scaleFactor, setScaleFactor] = useState(100); // Default to 100%
   const [infoActive, setInfoActive] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const draggingTimeoutRef = useRef(null); // Таймер для стабилизации isDragging
+  const [isActivelyMoving, setIsActivelyMoving] = useState(false); // Флаг активного движения
+  const movingTimeoutRef = useRef(null); // Таймер для флага активного движения
+  const [isActivelyZooming, setIsActivelyZooming] = useState(false); // Флаг активного зумирования
+  const zoomingTimeoutRef = useRef(null); // Таймер для флага активного зумирования
   const [canvasTranslation, setCanvasTranslation] = useState({ x: 0, y: 0 });
   const [imageCoordinates, setImageCoordinates] = useState({
     base: { x: 0, y: 0 },
@@ -121,6 +126,7 @@ const Editor = () => {
     }
     
     // ТОЛЬКО для реальных изменений структуры слоев требуют перерисовки  
+    console.log('🎨 updateLayersWithRenumbering: требует перерисовки');
     setNeedsRedraw(true);
   }, [updateLayers, renumberLayers]);
 
@@ -256,7 +262,20 @@ const Editor = () => {
   const handleScaleChange = (newScaleFactor) => {
     // Поддерживаем и event объекты и прямые значения
     const value = typeof newScaleFactor === 'object' ? newScaleFactor.target.value : newScaleFactor;
-    setScaleFactor(Number(value));
+    const numValue = Number(value);
+    console.log(`🔍 handleScaleChange: новый масштаб ${numValue}%`);
+    
+    // Устанавливаем флаг активного зумирования
+    setIsActivelyZooming(true);
+    if (zoomingTimeoutRef.current) {
+      clearTimeout(zoomingTimeoutRef.current);
+    }
+    zoomingTimeoutRef.current = setTimeout(() => {
+      setIsActivelyZooming(false);
+      console.log('🔍 handleScaleChange: сброс isActivelyZooming');
+    }, 250); // 250ms задержка для зума
+    
+    setScaleFactor(numValue);
     
     // CSS трансформации обновятся автоматически через useEffect
   };
@@ -370,6 +389,16 @@ const Editor = () => {
         const delta = event.deltaY;
         const scaleStep = 10; // Шаг изменения масштаба в процентах
         
+        // Устанавливаем флаг активного зумирования
+        setIsActivelyZooming(true);
+        if (zoomingTimeoutRef.current) {
+          clearTimeout(zoomingTimeoutRef.current);
+        }
+        zoomingTimeoutRef.current = setTimeout(() => {
+          setIsActivelyZooming(false);
+          console.log('🔍 mouseWheel: сброс isActivelyZooming');
+        }, 250); // 250ms задержка для зума
+
         // Используем функциональный setter для получения актуального значения
         setScaleFactor(currentScale => {
           let newScale = currentScale;
@@ -381,7 +410,9 @@ const Editor = () => {
           }
 
           // Ограничиваем масштаб в диапазоне 12% - 300%
-          return Math.max(12, Math.min(300, newScale));
+          const finalScale = Math.max(12, Math.min(300, newScale));
+          console.log(`🔍 mouseWheel: масштаб ${currentScale}% → ${finalScale}%`);
+          return finalScale;
         });
         
         // Устанавливаем таймаут для завершения зума
@@ -423,6 +454,15 @@ const Editor = () => {
       }
       if (positionTimeoutRef.current) {
         clearTimeout(positionTimeoutRef.current);
+      }
+      if (draggingTimeoutRef.current) {
+        clearTimeout(draggingTimeoutRef.current);
+      }
+      if (movingTimeoutRef.current) {
+        clearTimeout(movingTimeoutRef.current);
+      }
+      if (zoomingTimeoutRef.current) {
+        clearTimeout(zoomingTimeoutRef.current);
       }
       if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
@@ -650,6 +690,12 @@ const Editor = () => {
 
   // Основная функция перерисовки canvas через систему слоев
   const drawImageOnCanvas = useCallback(async () => {
+    // ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА: не рисуем во время активности
+    if (isDragging || isMouseWheelDown || isActivelyMoving || isActivelyZooming || isZooming) {
+      console.log(`🚫 drawImageOnCanvas: БЛОКИРОВАН (isDragging=${isDragging}, isMouseWheelDown=${isMouseWheelDown}, isActivelyMoving=${isActivelyMoving}, isActivelyZooming=${isActivelyZooming}, isZooming=${isZooming})`);
+      return;
+    }
+    
     const start = performance.now();
     console.log('🎨 drawImageOnCanvas: НАЧАТ');
     
@@ -750,6 +796,9 @@ const Editor = () => {
         const end = performance.now();
         console.log(`🎨 drawImageOnCanvas: ЗАВЕРШЕН за ${(end - start).toFixed(2)}ms`);
         
+        // Сбрасываем флаг после успешной перерисовки
+        setNeedsRedraw(false);
+        
         resolve();
     }
   }, [layers, scaleFactor, imagePosition, checkScrollbarsNeeded, syncScrollbarsWithImagePosition, isZooming, renderLayersOnCanvas]);
@@ -757,7 +806,7 @@ const Editor = () => {
   // Мемоизированная строка трансформации для оптимизации
   const transformString = useMemo(() => {
     const result = `translate(${imagePosition.x}px, ${imagePosition.y}px) scale(${scaleFactor / 100})`;
-    console.log('🔄 useMemo: transformString пересчитан', result);
+    console.log('🔄 useMemo: transformString пересчитан', result, `position:`, imagePosition, `scale:`, scaleFactor);
     return result;
   }, [imagePosition.x, imagePosition.y, scaleFactor]);
 
@@ -778,28 +827,19 @@ const Editor = () => {
     console.log(`⚡ updateCanvasTransform: применен за ${(end - start).toFixed(2)}ms`, transformString);
   }, [transformString]);
 
-  // Функция для плавной перерисовки с requestAnimationFrame (только когда реально нужно)
-  const debouncedRender = useCallback(() => {
-    // Отменяем предыдущий таймаут
-    if (renderTimeoutRef.current) {
-      clearTimeout(renderTimeoutRef.current);
-    }
-    
-    // Отменяем предыдущий animationFrame
-    if (animationFrameId.current) {
-      cancelAnimationFrame(animationFrameId.current);
-    }
-    
-    // Помечаем что нужна перерисовка
+  // Функция для принудительной перерисовки (только для эффектов/фильтров)
+  const forceRedraw = useCallback(() => {
+    console.log('🎨 forceRedraw: принудительная перерисовка');
     setNeedsRedraw(true);
   }, []);
 
-  // Переопределяем window.redrawCanvas для совместимости
+  // Переопределяем window.redrawCanvas для совместимости - через флаг
   useEffect(() => {
     window.redrawCanvas = () => {
-      drawImageOnCanvas();
+      setNeedsRedraw(true);
+      console.log('🔄 window.redrawCanvas: установлен needsRedraw=true');
     };
-  }, [drawImageOnCanvas]);
+  }, []);
 
   // Синхронизируем ref'ы с состояниями для использования в handleWheel
   useEffect(() => {
@@ -865,11 +905,10 @@ const Editor = () => {
         clearTimeout(zoomTimeoutRef.current);
       }
       
-      // Используем debounce для предотвращения частых перерисовок
+      // Устанавливаем флаг необходимости перерисовки вместо прямого вызова
       zoomTimeoutRef.current = setTimeout(() => {
-        requestAnimationFrame(() => {
-          drawImageOnCanvas();
-        });
+        setNeedsRedraw(true);
+        console.log('🔄 useEffect[scaleFactor]: установлен needsRedraw=true для перерисовки после зума');
       }, 50); // 50ms debounce
       
       return () => {
@@ -901,19 +940,34 @@ const Editor = () => {
     updateCanvasTransform();
   }, [updateCanvasTransform]);
 
-  // Перерисовываем canvas только когда действительно нужно
+  // Перерисовываем canvas только когда действительно нужно И НЕ ДВИГАЕМ И НЕ ЗУМИМ
   useEffect(() => {
-    if (needsRedraw && !isDragging) {
-      console.log('🎨 useEffect: запуск drawImageOnCanvas (needsRedraw=true, isDragging=false)');
+    if (needsRedraw && !isDragging && !isMouseWheelDown && !isActivelyMoving && !isActivelyZooming && !isZooming) {
+      console.log('🎨 useEffect: запуск drawImageOnCanvas (needsRedraw=true, ВСЕ ФЛАГИ АКТИВНОСТИ=false)');
       drawImageOnCanvas();
     } else {
-      console.log(`🚫 useEffect: пропуск drawImageOnCanvas (needsRedraw=${needsRedraw}, isDragging=${isDragging})`);
+      console.log(`🚫 useEffect: пропуск drawImageOnCanvas (needsRedraw=${needsRedraw}, isDragging=${isDragging}, isMouseWheelDown=${isMouseWheelDown}, isActivelyMoving=${isActivelyMoving}, isActivelyZooming=${isActivelyZooming}, isZooming=${isZooming})`);
     }
-  }, [drawImageOnCanvas, needsRedraw, isDragging]);
+  }, [drawImageOnCanvas, needsRedraw, isDragging, isMouseWheelDown, isActivelyMoving, isActivelyZooming, isZooming]);
 
   const [currentColor, setCurrentColor] = useState("");
 
-  // Функция для обработки движения мыши
+  // Ref для стабилизации состояний в handleMouseMove
+  const stateRef = useRef({});
+  stateRef.current = {
+    isDragging,
+    toolActive,
+    isMouseWheelDown,
+    scaleFactor,
+    cursor,
+    dimensions,
+    originalDimensions,
+    handToolSensitivity,
+    wheelDragSensitivity,
+    imagePosition
+  };
+
+  // Функция для обработки движения мыши - стабилизированная
   const handleMouseMove = useCallback((e) => {
     const canvasElement = canvas.current;
     if (!canvasElement) return;
@@ -945,18 +999,29 @@ const Editor = () => {
     }
 
     // Handle dragging for hand tool
-    if (isDragging && (toolActive === "hand" || isMouseWheelDown)) {
-      console.log(`🖐️ handleMouseMove: начинаем перетаскивание (toolActive=${toolActive}, isMouseWheelDown=${isMouseWheelDown})`);
+    if (stateRef.current.isDragging && (stateRef.current.toolActive === "hand" || stateRef.current.isMouseWheelDown)) {
+      const callId = Math.random().toString(36).substr(2, 9);
+      console.log(`🖐️ handleMouseMove[${callId}]: начинаем перетаскивание (toolActive=${stateRef.current.toolActive}, isMouseWheelDown=${stateRef.current.isMouseWheelDown})`);
+      
+      // Устанавливаем флаг активного движения и сбрасываем его с задержкой
+      setIsActivelyMoving(true);
+      if (movingTimeoutRef.current) {
+        clearTimeout(movingTimeoutRef.current);
+      }
+      movingTimeoutRef.current = setTimeout(() => {
+        setIsActivelyMoving(false);
+        console.log('🔄 handleMouseMove: сброс isActivelyMoving');
+      }, 300); // 300ms задержка
       // Выбираем коэффициент в зависимости от способа перетаскивания
-      let sensitivity = isMouseWheelDown ? wheelDragSensitivity : handToolSensitivity;
+      let sensitivity = stateRef.current.isMouseWheelDown ? stateRef.current.wheelDragSensitivity : stateRef.current.handToolSensitivity;
       
       // Если зажат Shift - делаем перемещение более точным (медленным)
       if (e.shiftKey) {
         sensitivity *= 0.2; // Уменьшаем чувствительность в 5 раз
       }
       
-      const dx = (x - cursor.x) * sensitivity;
-      const dy = (y - cursor.y) * sensitivity;
+      const dx = (x - stateRef.current.cursor.x) * sensitivity;
+      const dy = (y - stateRef.current.cursor.y) * sensitivity;
 
       // ВРЕМЕННО: перемещаем всю композицию вместо индивидуальных слоев для производительности
       // if (activeLayerId) {
@@ -965,53 +1030,46 @@ const Editor = () => {
       // } else {
       
       // Всегда перемещаем всю композицию (быстро через CSS трансформации)
-      // Дебаунсинг для предотвращения множественных вызовов
-      if (positionTimeoutRef.current) {
-        clearTimeout(positionTimeoutRef.current);
-      }
-      
-      positionTimeoutRef.current = setTimeout(() => {
-        setImagePosition(prevPosition => {
-          const start = performance.now();
-          console.log(`🖱️ setImagePosition: start (dx=${dx}, dy=${dy})`);
-          
-          const newX = prevPosition.x + dx;
-          const newY = prevPosition.y + dy;
-          
-          // Получаем размеры контейнера и изображения
-          const canvasElement = canvas.current;
-          const containerElement = scrollContainer.current;
-          if (!canvasElement || !containerElement) {
-            console.log('❌ setImagePosition: нет canvas или container');
-            return prevPosition;
-          }
-          
-          const scaledImageWidth = originalDimensions.width * (scaleFactor / 100);
-          const scaledImageHeight = originalDimensions.height * (scaleFactor / 100);
-          
-          // Применяем ограничения относительно размеров контейнера (viewport)
-          const constrainedPosition = constrainImagePosition(
-            newX, 
-            newY, 
-            containerElement.clientWidth, 
-            containerElement.clientHeight, 
-            scaledImageWidth, 
-            scaledImageHeight
-          );
-          
-          const end = performance.now();
-          console.log(`🖱️ setImagePosition: завершен за ${(end - start).toFixed(2)}ms`, constrainedPosition);
-          
-          // CSS трансформации обновятся автоматически через useEffect
-          return constrainedPosition;
-        });
-      }, 0); // Без задержки, только для предотвращения дублирования
+      setImagePosition(prevPosition => {
+        const start = performance.now();
+        console.log(`🖱️ setImagePosition[${callId}]: start (dx=${dx}, dy=${dy})`);
+        
+        const newX = prevPosition.x + dx;
+        const newY = prevPosition.y + dy;
+        
+        // Получаем размеры контейнера и изображения
+        const canvasElement = canvas.current;
+        const containerElement = scrollContainer.current;
+        if (!canvasElement || !containerElement) {
+          console.log('❌ setImagePosition: нет canvas или container');
+          return prevPosition;
+        }
+        
+        const scaledImageWidth = stateRef.current.originalDimensions.width * (stateRef.current.scaleFactor / 100);
+        const scaledImageHeight = stateRef.current.originalDimensions.height * (stateRef.current.scaleFactor / 100);
+        
+        // Применяем ограничения относительно размеров контейнера (viewport)
+        const constrainedPosition = constrainImagePosition(
+          newX, 
+          newY, 
+          containerElement.clientWidth, 
+          containerElement.clientHeight, 
+          scaledImageWidth, 
+          scaledImageHeight
+        );
+        
+        const end = performance.now();
+        console.log(`🖱️ setImagePosition[${callId}]: завершен за ${(end - start).toFixed(2)}ms`, constrainedPosition);
+        
+        // CSS трансформации обновятся автоматически через useEffect
+        return constrainedPosition;
+      });
     }
 
     // Обновляем курсор в конце
     setCursor({ x, y });
     setMouseCoords({ x, y });
-  }, [isDragging, toolActive, isMouseWheelDown, cursor.x, cursor.y, dimensions, scaleFactor, handToolSensitivity, wheelDragSensitivity]);
+  }, []); // Пустые зависимости - используем stateRef для актуальных значений
 
   const handleKeyDownEvent = (e) => {
     if (!canvas.current || !scrollContainer.current) return;
@@ -1038,14 +1096,25 @@ const Editor = () => {
     if (e.button === 1) { // Middle mouse button
       handleMouseWheelUp(e);
     } else {
-      handleMouseUp(setIsDragging);
-      setIsMouseDown(false);
-      console.log(`🖱️ handleMouseUpEvent: сброс isDragging`);
+      // ЗАДЕРЖКА перед сбросом isDragging для предотвращения мерцания при медленном движении
+      draggingTimeoutRef.current = setTimeout(() => {
+        handleMouseUp(setIsDragging);
+        setIsMouseDown(false);
+        console.log(`🔧 handleMouseUpEvent: сброс isDragging с задержкой`);
+        draggingTimeoutRef.current = null;
+      }, 200); // 200ms задержка для надёжности
     }
   };
   const handleMouseDownEvent = (e) => {
     console.log(`🖱️ handleMouseDownEvent: button=${e.button}, toolActive=${toolActive}`);
     setIsMouseDown(true);
+    
+    // Очищаем таймер при новом нажатии
+    if (draggingTimeoutRef.current) {
+      clearTimeout(draggingTimeoutRef.current);
+      draggingTimeoutRef.current = null;
+      console.log(`🔧 handleMouseDownEvent: очищен таймер dragging`);
+    }
     
     if (e.button === 1) { // Middle mouse button
       handleMouseWheelDown(e);
@@ -1118,19 +1187,11 @@ const Editor = () => {
     };
 
     window.addEventListener("keydown", handleKeyDownShortcut);
-    const canvasElement = canvas.current;
-    if (canvasElement) {
-      canvasElement.addEventListener("mousedown", handleMouseDownEvent);
-      canvasElement.addEventListener("mouseup", handleMouseUpEvent);
-      canvasElement.addEventListener("mouseleave", handleMouseUpEvent);
-    }
+    // ПРИМЕЧАНИЕ: события мыши регистрируются в EditorCanvas через React пропсы
+    // Дублирующую addEventListener регистрацию УБРАНА для предотвращения множественных вызовов
+    
     return () => {
       window.removeEventListener("keydown", handleKeyDownShortcut);
-      if (canvasElement) {
-        canvasElement.removeEventListener("mousedown", handleMouseDownEvent);
-        canvasElement.removeEventListener("mouseup", handleMouseUpEvent);
-        canvasElement.removeEventListener("mouseleave", handleMouseUpEvent);
-      }
     };
   }, [selectedTool]);
 

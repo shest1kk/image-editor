@@ -35,6 +35,7 @@ const EditorCanvas = ({
           onMouseMove={handleMouseMove}
           onMouseDown={handleMouseDownEvent}
           onMouseUp={handleMouseUpEvent}
+          onMouseLeave={handleMouseUpEvent}
           onKeyDown={!isModalOpen ? handleKeyDownEvent : null}
           onKeyUp={!isModalOpen ? handleKeyUpEvent : null}
           style={{ cursor: toolActive === "hand" || isMouseWheelDown ? "grab" : toolActive === "pipette" ? "crosshair" : "default" }}
